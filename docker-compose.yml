@@ -1,0 +1,13 @@
+services:
+  importer:
+    build: .
+    image: severnbli/rusguard-importer:latest
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      HOME: /data
+    network_mode: host  # доступ к PostgreSQL в локальной сети и к X-серверу
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./data:/data  # настройки, рабочие xlsx, фото
+      - ./templates:/app/templates:ro
