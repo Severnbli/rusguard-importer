@@ -16,6 +16,7 @@ from PIL import Image, ImageTk
 
 import cropper
 import db
+import access_export
 import importer
 import settings
 import sheets
@@ -186,9 +187,19 @@ class App:
         for seq in ("<Button-1>", "<Double-Button-1>"):
             self.tree.bind(seq, self._block_resize)
 
-        panel = ttk.Frame(hpane, style="Card.TFrame", padding=pad(16))
+        panel_outer = ttk.Frame(hpane, style="Card.TFrame")
+        hpane.add(panel_outer, weight=1)
+        panel_canvas = tk.Canvas(panel_outer, background=theme.CARD, highlightthickness=0, width=pad(340))
+        panel_scroll = ttk.Scrollbar(panel_outer, orient="vertical", command=panel_canvas.yview)
+        panel_canvas.configure(yscrollcommand=panel_scroll.set)
+        panel_scroll.pack(side="right", fill="y")
+        panel_canvas.pack(side="left", fill="both", expand=True)
+        panel = ttk.Frame(panel_canvas, style="Panel.TFrame", padding=pad(16))
         panel.columnconfigure(0, weight=1)
-        hpane.add(panel, weight=1)
+        panel_window = panel_canvas.create_window((0, 0), window=panel, anchor="nw")
+        panel.bind("<Configure>", lambda e: panel_canvas.configure(scrollregion=panel_canvas.bbox("all")))
+        panel_canvas.bind("<Configure>", lambda e: panel_canvas.itemconfigure(panel_window, width=e.width))
+        self._bind_wheel(panel_outer, panel_canvas)
         self.panel_title = tk.StringVar()
         ttk.Label(panel, textvariable=self.panel_title, style="CardTitle.TLabel").grid(
             row=0, column=0, sticky="w", pady=(0, pad(10)))
@@ -199,7 +210,7 @@ class App:
         photo_frame.pack_propagate(False)
         self.thumb_label = ttk.Label(photo_frame, text="нет фото", style="Photo.TLabel")
         self.thumb_label.pack(fill="both", expand=True)
-        photo_btns = ttk.Frame(panel, style="Card.TFrame")
+        photo_btns = ttk.Frame(panel, style="Panel.TFrame")
         photo_btns.grid(row=2, column=0, sticky="we", pady=(0, pad(12)))
         ttk.Button(photo_btns, text="Выбрать фото…", command=self._on_pick_photo).pack(fill="x")
         self.btn_clear = ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo)
@@ -215,8 +226,9 @@ class App:
         self.lbl_keys.grid(row=5, column=0, sticky="w")
         self.e_keys = ttk.Entry(panel, textvariable=self.v_keys)
         self.e_keys.grid(row=6, column=0, sticky="we", pady=field_pad)
-        self.lbl_cur_keys = ttk.Label(panel, style="Card.TLabel", foreground=theme.MUTED, wraplength=pad(300))
-        self.lbl_cur_keys.grid(row=7, column=0, sticky="w", pady=(0, pad(10)))
+        self.cur_keys_frame = ttk.Frame(panel, style="Panel.TFrame")
+        self.cur_keys_frame.grid(row=7, column=0, sticky="we", pady=(0, pad(10)))
+        self._rm_vars: list = []
         ttk.Label(panel, text="Должность", style="Card.TLabel").grid(row=8, column=0, sticky="w")
         self.c_pos = ttk.Combobox(panel, textvariable=self.v_pos)
         self.c_pos.grid(row=9, column=0, sticky="we", pady=field_pad)
@@ -240,21 +252,6 @@ class App:
                         variable=self.dry_run).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(opts, text="Сохранять валидные строки при ошибках в других",
                         variable=self.allow_partial).grid(row=0, column=1, sticky="w", padx=(pad(18), 0))
-        self.make_access = tk.BooleanVar()
-        self.access_check = ttk.Checkbutton(opts, text="Создать Access-базу из шаблона", variable=self.make_access)
-        self.access_check.grid(row=1, column=0, sticky="w")
-        if os.name != "nt":
-            self.access_check.configure(text="Создать Access-базу из шаблона (только Windows)")
-        self.access_out = tk.StringVar()
-        access_row = ttk.Frame(opts)
-        access_row.grid(row=2, column=0, columnspan=2, sticky="we", pady=(2, 0))
-        access_row.columnconfigure(1, weight=1)
-        self.access_label = ttk.Label(access_row, text="Файл Access:", style="Muted.TLabel")
-        self.access_entry = ttk.Entry(access_row, textvariable=self.access_out)
-        self.access_btn = ttk.Button(access_row, text="Обзор…", command=self._on_pick_access)
-        self.access_label.grid(row=0, column=0, padx=(0, 8))
-        self.access_entry.grid(row=0, column=1, sticky="we")
-        self.access_btn.grid(row=0, column=2, padx=(8, 0))
         opts.columnconfigure(1, weight=1)
 
         run_row = ttk.Frame(bottom)
@@ -262,6 +259,10 @@ class App:
         self.run_button = ttk.Button(run_row, text="Импортировать", style="Accent.TButton",
                                      command=self._on_import)
         self.run_button.pack(side="left")
+        self.access_button = ttk.Button(run_row, text="Создать Access-базу…", command=self._on_make_access)
+        self.access_button.pack(side="left", padx=(10, 0))
+        if os.name != "nt":
+            self.access_button.configure(state="disabled", text="Создать Access-базу… (только Windows)")
         self.status = tk.StringVar(value="Готово к запуску")
         self.status_label = ttk.Label(run_row, textvariable=self.status, style="Muted.TLabel")
         self.status_label.pack(side="left", padx=14)
@@ -294,11 +295,6 @@ class App:
         self.panel_title.set("Новый профиль" if new else "Редактирование профиля")
         self.lbl_keys.configure(text="Ключ(и) — через запятую" if new else "Добавить ключ(и) — через запятую")
         self.btn_clear.configure(text="Убрать фото" if new else "Вернуть исходное фото")
-        access_ok = new and os.name == "nt"  # Access-драйвер ODBC есть только в Windows
-        for w in (self.access_check, self.access_label, self.access_entry, self.access_btn):
-            w.configure(state="normal" if access_ok else "disabled")
-        if not access_ok:
-            self.make_access.set(False)
 
     def _on_mode_change(self):
         if self.entries and not messagebox.askyesno(
@@ -326,7 +322,10 @@ class App:
 
     @staticmethod
     def _tree_values(e: Entry):
-        return (e.fullname, e.keys, e.position, e.group, "да" if e.photo else "")
+        keys = e.keys
+        if e.remove_keys:
+            keys = (keys + " " if keys else "") + "(снять: " + ", ".join(str(k) for k in e.remove_keys) + ")"
+        return (e.fullname, keys, e.position, e.group, "да" if e.photo else "")
 
     def _selected_index(self):
         sel = self.tree.selection()
@@ -352,15 +351,51 @@ class App:
         self.e_keys.configure(state="normal" if has else "disabled")
         self.c_pos.configure(state="normal" if has else "disabled")
         self.c_grp.configure(state="normal" if has else "disabled")
-        if not new and has and entry.current_keys:
-            self.lbl_cur_keys.configure(
-                text="Текущие ключи: " + ", ".join(str(k) for k in entry.current_keys))
-            self.lbl_cur_keys.grid()
-        elif not new:
-            self.lbl_cur_keys.configure(text="Текущих ключей нет" if has else "")
-            self.lbl_cur_keys.grid()
-        else:
-            self.lbl_cur_keys.grid_remove()
+        self._render_current_keys(entry if (has and not new) else None)
+
+    def _render_current_keys(self, entry):
+        for w in self.cur_keys_frame.winfo_children():
+            w.destroy()
+        self._rm_vars = []
+        if entry is None:
+            return
+        if not entry.current_keys:
+            ttk.Label(self.cur_keys_frame, text="Текущих ключей нет", style="Card.TLabel",
+                      foreground=theme.MUTED).pack(anchor="w")
+            return
+        ttk.Label(self.cur_keys_frame, text="Текущие ключи (отметьте, чтобы снять):",
+                  style="Card.TLabel").pack(anchor="w")
+        for key in entry.current_keys:
+            var = tk.BooleanVar(value=key in entry.remove_keys)
+            var.trace_add("write", lambda *a, k=key, v=var: self._on_toggle_key(k, v))
+            self._rm_vars.append(var)
+            ttk.Checkbutton(self.cur_keys_frame, text=str(key), variable=var,
+                            style="Card.TCheckbutton").pack(anchor="w")
+
+    def _on_toggle_key(self, key, var):
+        idx = self._selected_index()
+        if idx is None or self._loading:
+            return
+        e = self.entries[idx]
+        if var.get() and key not in e.remove_keys:
+            e.remove_keys.append(key)
+        elif not var.get() and key in e.remove_keys:
+            e.remove_keys.remove(key)
+        self.tree.item(str(idx), values=self._tree_values(e))
+
+    def _bind_wheel(self, outer, canvas):
+        """Колесо мыши прокручивает панель, пока указатель над ней."""
+        def on_wheel(event):
+            if not str(event.widget).startswith(str(outer)):
+                return
+            bbox = canvas.bbox("all")
+            if not bbox or bbox[3] <= canvas.winfo_height():
+                return
+            up = getattr(event, "num", 0) == 4 or getattr(event, "delta", 0) > 0
+            canvas.yview_scroll(-3 if up else 3, "units")
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.root.bind_all(seq, on_wheel, add="+")
 
     def _on_edit(self):
         if self._loading:
@@ -483,11 +518,45 @@ class App:
         if not sheets.open_in_editor(dest):
             messagebox.showinfo("Шаблон", f"Файл создан: {dest}")
 
-    def _on_pick_access(self):
-        path = filedialog.asksaveasfilename(title="Файл Access", defaultextension=".accdb",
-                                            filetypes=[("Access", "*.accdb")])
-        if path:
-            self.access_out.set(path)
+    def _on_make_access(self):
+        if self.busy:
+            return
+        entries = [e for e in self.entries if e.fullname.strip() and not e.fullname.startswith("#")]
+        if not entries:
+            messagebox.showerror("Access", "В таблице нет строк для карточек.")
+            return
+        dest = filedialog.asksaveasfilename(title="Файл Access", defaultextension=".accdb",
+                                            initialfile="cards.accdb", filetypes=[("Access", "*.accdb")])
+        if not dest:
+            return
+        self.busy = True
+        self.run_button.configure(state="disabled")
+        self.access_button.configure(state="disabled")
+        self.status.set("Создаю Access-базу…")
+        self.status_label.configure(foreground="#374151")
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+        log = lambda m: self.queue.put(("line", m))
+
+        def worker():
+            code = importer.OK
+            try:
+                ids = [e.employee_id for e in entries if e.employee_id]
+                from_db = db.fetch_cards(self.cfg, ids) if ids else {}
+                cards = []
+                for e in entries:
+                    card = from_db.get(e.employee_id)
+                    cards.append(card or {"fullname": e.fullname.strip(), "position": e.position.strip() or None,
+                                          "photo": e.photo})
+                access_export.export_cards(dest, cards, self.cfg, log)
+                log(f"Готово: {dest} (карточек: {len(cards)})")
+            except Exception as exc:
+                log(f"ОШИБКА Access: {exc}")
+                code = importer.FAILED_TO_START
+            self.queue.put(("done", code))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------ lookups
     def _load_lookups_async(self, show_errors: bool = False):
@@ -582,13 +651,7 @@ class App:
         if not entries:
             messagebox.showerror("Проверьте таблицу", "Таблица пуста.")
             return
-        access_out = ""
-        if self.mode.get() == sheets.MODE_NEW and self.make_access.get():
-            access_out = self.access_out.get().strip()
-            if not access_out:
-                messagebox.showerror("Проверьте поля", "Укажите, куда сохранить Access-базу.")
-                return
-        args = (self.cfg, self.mode.get(), entries, self._key_format_code(), access_out or None,
+        args = (self.cfg, self.mode.get(), entries, self._key_format_code(),
                 self.dry_run.get(), self.allow_partial.get())
 
         self.busy = True
@@ -621,6 +684,8 @@ class App:
                 elif kind == "done":
                     self.busy = False
                     self.run_button.configure(state="normal")
+                    if os.name == "nt":
+                        self.access_button.configure(state="normal")
                     text, color = _STATUS.get(payload, ("Завершено", "#374151"))
                     self.status.set(text)
                     self.status_label.configure(foreground=color)

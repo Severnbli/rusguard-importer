@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Оркестрация импорта: Excel -> RusGuard (PostgreSQL) -> (опционально) Access напрямую из БД."""
+"""Оркестрация импорта строк таблицы в RusGuard (PostgreSQL)."""
 
 from __future__ import annotations
 
 import db
-import access_export
 import sheets
 
 OK, FAILED_TO_START, PROBLEMS = 0, 1, 2
@@ -16,7 +15,7 @@ _KEY_RU = {
 }
 
 
-def run_import(cfg: dict, mode: str, entries: list, key_format: str, access_out,
+def run_import(cfg: dict, mode: str, entries: list, key_format: str,
                dry_run: bool, allow_partial: bool, log) -> int:
     """entries — строки таблицы (sheets.Entry); log — функция str -> None. Возвращает код результата."""
     try:
@@ -66,22 +65,6 @@ def run_import(cfg: dict, mode: str, entries: list, key_format: str, access_out,
                     log(f"ОШИБКА {row.label}: {exc}")
 
             abort = bool(problems) and not allow_partial and not dry_run
-            if access_out and mode == sheets.MODE_NEW and created_ids and not dry_run and not abort:
-                log("-" * 60)
-                log(f"Создаю Access-базу: {access_out}")
-                try:
-                    cards = [db.fetch_card(cur, i) for i in created_ids]
-                    access_export.export_cards(access_out, cards, cfg, log)
-                except Exception as exc:
-                    log(f"ОШИБКА Access: {exc}")
-                    problems += 1
-                    abort = not allow_partial
-                    if abort:
-                        conn.rollback()
-                        log("Импорт в БД отменён, ничего не сохранено.")
-                        return PROBLEMS
-            elif access_out and dry_run:
-                log("Dry-run: Access-база не создаётся.")
 
         if dry_run:
             conn.rollback()
@@ -124,6 +107,12 @@ def _process_row(cur, row, mode: str, log):
     if row.photo:
         db.upsert_photo(cur, employee_id, row.photo)
         log(f"{row.label}: фото сохранено")
+
+    for key in row.remove_keys:
+        if db.unassign_key(cur, employee_id, key):
+            log(f"{row.label}: ключ {key} снят")
+        else:
+            log(f"ВНИМАНИЕ {row.label}: ключ {key} не был назначен — пропущено")
 
     conflicts = 0
     for key in row.keys:

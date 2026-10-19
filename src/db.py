@@ -226,6 +226,26 @@ def update_employee(cur, employee_id, position_id, group_id) -> None:
         cur.execute(f"UPDATE employee SET {', '.join(parts)} WHERE _id = %s", (*values, employee_id))
 
 
+def unassign_key(cur, employee_id, keynumber: int) -> bool:
+    """Снимает активное назначение ключа сотруднику (сам ключ остаётся в acskeys)."""
+    cur.execute(
+        "DELETE FROM acskey2employeeassignment "
+        "WHERE employeeid = %s AND acskeyid = %s AND assignmentmodificationtype = 0",
+        (employee_id, keynumber),
+    )
+    return cur.rowcount > 0
+
+
+def fetch_cards(cfg: dict, employee_ids: list) -> dict:
+    """{id: карточка для Access} для сотрудников из БД."""
+    conn = connect(cfg)
+    try:
+        with conn.cursor() as cur:
+            return {i: fetch_card(cur, i) for i in employee_ids}
+    finally:
+        conn.close()
+
+
 def fetch_card(cur, employee_id) -> dict:
     """ФИО, должность и последнее фото сотрудника — данные для карточки в Access."""
     cur.execute(
