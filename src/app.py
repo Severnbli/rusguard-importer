@@ -19,6 +19,7 @@ import db
 import importer
 import settings
 import sheets
+import theme
 from keys import KEY_FORMATS
 from sheets import Entry
 
@@ -44,8 +45,9 @@ class SearchDialog(tk.Toplevel):
         self.result: list = []
         self.found: list = []
         self.transient(parent)
+        self.configure(background=theme.BG)
 
-        top = ttk.Frame(self, padding=8)
+        top = ttk.Frame(self, padding=10)
         top.pack(fill="x")
         self.query = tk.StringVar()
         entry = ttk.Entry(top, textvariable=self.query, width=40)
@@ -53,13 +55,14 @@ class SearchDialog(tk.Toplevel):
         entry.bind("<Return>", lambda e: self._search())
         ttk.Button(top, text="Найти", command=self._search).pack(side="left", padx=(6, 0))
 
-        self.listbox = tk.Listbox(self, selectmode="extended", width=70, height=14)
-        self.listbox.pack(fill="both", expand=True, padx=8)
+        self.listbox = tk.Listbox(self, selectmode="extended", width=70, height=14, relief="flat",
+                                  highlightthickness=1, highlightbackground=theme.BORDER, activestyle="none")
+        self.listbox.pack(fill="both", expand=True, padx=10)
         self.listbox.bind("<Double-Button-1>", lambda e: self._accept())
 
-        bottom = ttk.Frame(self, padding=8)
+        bottom = ttk.Frame(self, padding=10)
         bottom.pack(fill="x")
-        ttk.Button(bottom, text="Добавить выбранных", command=self._accept).pack(side="right")
+        ttk.Button(bottom, text="Добавить выбранных", style="Accent.TButton", command=self._accept).pack(side="right")
         ttk.Button(bottom, text="Закрыть", command=self.destroy).pack(side="right", padx=6)
         entry.focus_set()
         self.grab_set()
@@ -89,8 +92,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         root.title("RusGuard Importer")
-        root.geometry("920x860")
-        root.minsize(760, 680)
+        root.geometry("1120x860")
+        root.minsize(980, 720)
         self.cfg = settings.load()
         self.queue: "queue.Queue" = queue.Queue()
         self.busy = False
@@ -102,8 +105,8 @@ class App:
         self._prev_mode = sheets.MODE_NEW
 
         notebook = ttk.Notebook(root)
-        notebook.pack(fill="both", expand=True, padx=8, pady=8)
-        main_tab, setup_tab = ttk.Frame(notebook, padding=10), ttk.Frame(notebook, padding=12)
+        notebook.pack(fill="both", expand=True, padx=12, pady=12)
+        main_tab, setup_tab = ttk.Frame(notebook, padding=14), ttk.Frame(notebook, padding=18)
         notebook.add(main_tab, text="Импорт")
         notebook.add(setup_tab, text="Настройки")
         self._build_main(main_tab)
@@ -114,105 +117,129 @@ class App:
     # ------------------------------------------------------------------ main tab
     def _build_main(self, tab: ttk.Frame):
         tab.columnconfigure(0, weight=1)
-        self.mode = tk.StringVar(value=sheets.MODE_NEW)
-        mode_frame = ttk.LabelFrame(tab, text="Что делаем", padding=6)
-        mode_frame.grid(row=0, column=0, sticky="we")
-        for value, text in _MODES.items():
-            ttk.Radiobutton(mode_frame, text=text, value=value, variable=self.mode,
-                            command=self._on_mode_change).pack(anchor="w")
-        fmt_row = ttk.Frame(tab)
-        fmt_row.grid(row=1, column=0, sticky="w", pady=6)
-        ttk.Label(fmt_row, text="Формат ключей:").pack(side="left")
-        self.key_format = tk.StringVar(value=KEY_FORMATS.get(self.cfg["key_format"], KEY_FORMATS["dec"]))
-        ttk.Combobox(fmt_row, textvariable=self.key_format, values=list(KEY_FORMATS.values()),
-                     state="readonly", width=32).pack(side="left", padx=6)
+        tab.rowconfigure(2, weight=3)
+        tab.rowconfigure(5, weight=1)
 
+        # --- шапка: режим и формат ключей
+        head = ttk.Frame(tab)
+        head.grid(row=0, column=0, sticky="we")
+        self.mode = tk.StringVar(value=sheets.MODE_NEW)
+        for value, text in _MODES.items():
+            ttk.Radiobutton(head, text=text, value=value, variable=self.mode, style="Seg.Toolbutton",
+                            command=self._on_mode_change).pack(side="left", padx=(0, 2))
+        self.key_format = tk.StringVar(value=KEY_FORMATS.get(self.cfg["key_format"], KEY_FORMATS["dec"]))
+        ttk.Combobox(head, textvariable=self.key_format, values=list(KEY_FORMATS.values()),
+                     state="readonly", width=30).pack(side="right")
+        ttk.Label(head, text="Формат ключей:", style="Muted.TLabel").pack(side="right", padx=(0, 8))
+
+        # --- панель инструментов
         bar = ttk.Frame(tab)
-        bar.grid(row=2, column=0, sticky="we")
-        self.btn_add = ttk.Button(bar, text="Добавить строку", command=self._on_add_row)
+        bar.grid(row=1, column=0, sticky="we", pady=(12, 6))
+        self.btn_add = ttk.Button(bar, text="+ Добавить строку", command=self._on_add_row)
         self.btn_find = ttk.Button(bar, text="Найти в БД…", command=self._on_find)
         self.btn_add.pack(side="left")
         self.btn_find.pack(side="left")
-        ttk.Button(bar, text="Удалить", command=self._on_delete).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Из Excel…", command=self._on_load_xlsx).pack(side="left", padx=(18, 0))
-        ttk.Button(bar, text="Шаблон Excel…", command=self._on_save_template).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Удалить", style="Danger.TButton", command=self._on_delete).pack(
+            side="left", padx=(6, 0))
         ttk.Button(bar, text="Обновить списки", command=lambda: self._load_lookups_async(True)).pack(
             side="right")
+        ttk.Button(bar, text="Шаблон Excel…", command=self._on_save_template).pack(side="right", padx=6)
+        ttk.Button(bar, text="Из Excel…", command=self._on_load_xlsx).pack(side="right")
 
+        # --- таблица + карточка редактирования
+        body = ttk.Frame(tab)
+        body.grid(row=2, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        tree_card = ttk.Frame(body, style="Card.TFrame")
+        tree_card.grid(row=0, column=0, sticky="nsew")
         cols = ("fio", "keys", "position", "group", "photo")
-        tree_frame = ttk.Frame(tab)
-        tree_frame.grid(row=3, column=0, sticky="nsew", pady=4)
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8, selectmode="browse")
-        for col, title, width in (("fio", "ФИО", 240), ("keys", "Ключи", 170), ("position", "Должность", 150),
-                                  ("group", "Группа", 120), ("photo", "Фото", 50)):
-            self.tree.heading(col, text=title)
-            self.tree.column(col, width=width, anchor="w")
-        sb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree = ttk.Treeview(tree_card, columns=cols, show="headings", selectmode="browse")
+        for col, title, width, stretch in (("fio", "ФИО", 230, True), ("keys", "Ключи", 140, False),
+                                           ("position", "Должность", 130, False),
+                                           ("group", "Группа", 100, False), ("photo", "Фото", 60, False)):
+            self.tree.heading(col, text=title, anchor="w")
+            self.tree.column(col, width=width, anchor="w", stretch=stretch)
+        self.tree.tag_configure("odd", background=theme.ZEBRA)
+        sb = ttk.Scrollbar(tree_card, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
         sb.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._load_selected())
-        tab.rowconfigure(3, weight=1)
 
-        panel = ttk.LabelFrame(tab, text="Выбранная строка", padding=8)
-        panel.grid(row=4, column=0, sticky="we")
-        panel.columnconfigure(1, weight=1)
+        panel = ttk.Frame(body, style="Card.TFrame", padding=14)
+        panel.grid(row=0, column=1, sticky="ns", padx=(10, 0))
+        ttk.Label(panel, text="Выбранная строка", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
+
+        photo_frame = ttk.Frame(panel, style="Photo.TFrame", width=150, height=200)
+        photo_frame.pack(pady=(0, 6))
+        photo_frame.pack_propagate(False)
+        self.thumb_label = ttk.Label(photo_frame, text="нет фото", style="Photo.TLabel")
+        self.thumb_label.pack(fill="both", expand=True)
+        photo_btns = ttk.Frame(panel, style="Card.TFrame")
+        photo_btns.pack(fill="x", pady=(0, 10))
+        ttk.Button(photo_btns, text="Выбрать фото…", command=self._on_pick_photo).pack(fill="x")
+        ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo).pack(fill="x", pady=(4, 0))
+
         self.v_name, self.v_keys = tk.StringVar(), tk.StringVar()
         self.v_pos, self.v_grp = tk.StringVar(), tk.StringVar()
-        ttk.Label(panel, text="ФИО:").grid(row=0, column=0, sticky="w", pady=2)
-        self.e_name = ttk.Entry(panel, textvariable=self.v_name)
-        self.e_name.grid(row=0, column=1, sticky="we")
-        ttk.Label(panel, text="Ключ(и):").grid(row=1, column=0, sticky="w", pady=2)
-        ttk.Entry(panel, textvariable=self.v_keys).grid(row=1, column=1, sticky="we")
-        ttk.Label(panel, text="Должность:").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(panel, text="ФИО", style="Card.TLabel").pack(anchor="w")
+        self.e_name = ttk.Entry(panel, textvariable=self.v_name, width=30)
+        self.e_name.pack(fill="x", pady=(2, 8))
+        ttk.Label(panel, text="Ключ(и) — через запятую", style="Card.TLabel").pack(anchor="w")
+        ttk.Entry(panel, textvariable=self.v_keys).pack(fill="x", pady=(2, 8))
+        ttk.Label(panel, text="Должность", style="Card.TLabel").pack(anchor="w")
         self.c_pos = ttk.Combobox(panel, textvariable=self.v_pos)
-        self.c_pos.grid(row=2, column=1, sticky="we")
-        ttk.Label(panel, text="Группа:").grid(row=3, column=0, sticky="w", pady=2)
+        self.c_pos.pack(fill="x", pady=(2, 8))
+        ttk.Label(panel, text="Группа", style="Card.TLabel").pack(anchor="w")
         self.c_grp = ttk.Combobox(panel, textvariable=self.v_grp)
-        self.c_grp.grid(row=3, column=1, sticky="we")
+        self.c_grp.pack(fill="x", pady=(2, 0))
         for var in (self.v_name, self.v_keys, self.v_pos, self.v_grp):
             var.trace_add("write", lambda *a: self._on_edit())
 
-        photo_box = ttk.Frame(panel)
-        photo_box.grid(row=0, column=2, rowspan=4, padx=(12, 0))
-        self.thumb_label = ttk.Label(photo_box, text="нет фото", width=14, anchor="center")
-        self.thumb_label.pack()
-        ttk.Button(photo_box, text="Выбрать фото…", command=self._on_pick_photo).pack(pady=(4, 0))
-        ttk.Button(photo_box, text="Убрать фото", command=self._on_clear_photo).pack()
-
+        # --- параметры запуска
         opts = ttk.Frame(tab)
-        opts.grid(row=5, column=0, sticky="we", pady=(8, 0))
+        opts.grid(row=3, column=0, sticky="we", pady=(12, 0))
         opts.columnconfigure(1, weight=1)
+        self.dry_run = tk.BooleanVar(value=True)
+        self.allow_partial = tk.BooleanVar()
+        flags = ttk.Frame(opts)
+        flags.grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(flags, text="Dry-run (проверить, ничего не сохранять)",
+                        variable=self.dry_run).pack(side="left")
+        ttk.Checkbutton(flags, text="Сохранять валидные строки при ошибках в других",
+                        variable=self.allow_partial).pack(side="left", padx=(18, 0))
         self.make_access = tk.BooleanVar()
         self.access_check = ttk.Checkbutton(opts, text="Создать Access-базу из шаблона", variable=self.make_access)
-        self.access_check.grid(row=0, column=0, columnspan=3, sticky="w")
+        self.access_check.grid(row=1, column=0, sticky="w", pady=(6, 0))
         if os.name != "nt":
             self.access_check.configure(text="Создать Access-базу из шаблона (только Windows)")
         self.access_out = tk.StringVar()
-        self.access_label = ttk.Label(opts, text="Файл Access (.accdb):")
+        self.access_label = ttk.Label(opts, text="Файл:", style="Muted.TLabel")
         self.access_entry = ttk.Entry(opts, textvariable=self.access_out)
         self.access_btn = ttk.Button(opts, text="Обзор…", command=self._on_pick_access)
-        self.access_label.grid(row=1, column=0, sticky="w")
-        self.access_entry.grid(row=1, column=1, sticky="we", padx=6)
-        self.access_btn.grid(row=1, column=2)
-        self.dry_run = tk.BooleanVar(value=True)
-        self.allow_partial = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Dry-run — проверить, но ничего не сохранять",
-                        variable=self.dry_run).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        ttk.Checkbutton(opts, text="Сохранять валидные строки, даже если другие с проблемами",
-                        variable=self.allow_partial).grid(row=3, column=0, columnspan=3, sticky="w")
+        self.access_label.grid(row=1, column=1, sticky="e", padx=(12, 6), pady=(6, 0))
+        self.access_entry.grid(row=1, column=2, sticky="we", pady=(6, 0))
+        self.access_btn.grid(row=1, column=3, padx=(6, 0), pady=(6, 0))
+        opts.columnconfigure(2, weight=1)
 
+        # --- запуск и лог
         run_row = ttk.Frame(tab)
-        run_row.grid(row=6, column=0, sticky="we", pady=8)
-        self.run_button = ttk.Button(run_row, text="Импортировать", command=self._on_import)
+        run_row.grid(row=4, column=0, sticky="we", pady=12)
+        self.run_button = ttk.Button(run_row, text="Импортировать", style="Accent.TButton",
+                                     command=self._on_import)
         self.run_button.pack(side="left")
         self.status = tk.StringVar(value="Готово к запуску")
-        self.status_label = ttk.Label(run_row, textvariable=self.status)
-        self.status_label.pack(side="left", padx=10)
+        self.status_label = ttk.Label(run_row, textvariable=self.status, style="Muted.TLabel")
+        self.status_label.pack(side="left", padx=14)
 
-        self.log_text = scrolledtext.ScrolledText(tab, height=8, wrap="word", state="disabled")
-        self.log_text.grid(row=7, column=0, sticky="nsew")
-        tab.rowconfigure(7, weight=1)
+        self.log_text = scrolledtext.ScrolledText(
+            tab, height=7, wrap="word", state="disabled", relief="flat", borderwidth=0,
+            background=theme.CARD, highlightthickness=1, highlightbackground=theme.BORDER,
+            font=(theme.FONT_FAMILY if os.name == "nt" else "DejaVu Sans Mono", 9), padx=8, pady=6,
+        )
+        self.log_text.grid(row=5, column=0, sticky="nsew")
         self._refresh_mode()
         self._load_selected()
 
@@ -243,7 +270,8 @@ class App:
     def _rebuild_tree(self, select: int = None):
         self.tree.delete(*self.tree.get_children())
         for i, e in enumerate(self.entries):
-            self.tree.insert("", "end", iid=str(i), values=self._tree_values(e))
+            self.tree.insert("", "end", iid=str(i), values=self._tree_values(e),
+                             tags=("odd",) if i % 2 else ())
         if select is not None and 0 <= select < len(self.entries):
             self.tree.selection_set(str(select))
             self.tree.see(str(select))
@@ -293,7 +321,7 @@ class App:
             self.thumb_label.configure(image="", text="нет фото")
             return
         im = Image.open(io.BytesIO(photo))
-        im.thumbnail((90, 120))
+        im.thumbnail((150, 200))
         self._thumb = ImageTk.PhotoImage(im)
         self.thumb_label.configure(image=self._thumb, text="")
 
@@ -403,36 +431,46 @@ class App:
 
     # ------------------------------------------------------------------ setup tab
     def _build_setup(self, tab: ttk.Frame):
-        tab.columnconfigure(1, weight=1)
+        tab.columnconfigure(0, weight=1)
         self.vars = {}
-        fields = [
-            ("host", "Хост БД:"), ("port", "Порт:"), ("dbname", "Имя базы данных:"),
-            ("user", "Пользователь БД:"), ("password", "Пароль:"),
-            ("photo_max_side", "Макс. сторона фото, px:"),
-            ("access_table", "Таблица Access:"),
-            ("access_max_photo_dimension", "Макс. размер фото в Access, px:"),
-        ]
-        for r, (key, label) in enumerate(fields):
-            self.vars[key] = tk.StringVar(value=str(self.cfg[key]))
-            ttk.Label(tab, text=label).grid(row=r, column=0, sticky="w", pady=3, padx=(0, 8))
-            ttk.Entry(tab, textvariable=self.vars[key], show="*" if key == "password" else "",
-                      width=40).grid(row=r, column=1, sticky="w")
-        r = len(fields)
+
+        def section(title, fields, row):
+            box = ttk.LabelFrame(tab, text=title, padding=12)
+            box.grid(row=row, column=0, sticky="we", pady=(0, 10))
+            box.columnconfigure(1, weight=1)
+            for r, (key, label) in enumerate(fields):
+                self.vars[key] = tk.StringVar(value=str(self.cfg[key]))
+                ttk.Label(box, text=label).grid(row=r, column=0, sticky="w", pady=4, padx=(0, 12))
+                ttk.Entry(box, textvariable=self.vars[key], show="*" if key == "password" else "",
+                          width=36).grid(row=r, column=1, sticky="w")
+            return box
+
+        section("Подключение к БД RusGuard", [
+            ("host", "Хост"), ("port", "Порт"), ("dbname", "База данных"),
+            ("user", "Пользователь"), ("password", "Пароль"),
+        ], 0)
+        section("Фото", [("photo_max_side", "Макс. сторона, px")], 1)
+        access = section("Access", [
+            ("access_table", "Таблица"), ("access_max_photo_dimension", "Макс. размер фото, px"),
+        ], 2)
         self.vars["access_position_case"] = tk.StringVar(value=self.cfg["access_position_case"])
-        ttk.Label(tab, text="Регистр должности в Access:").grid(row=r, column=0, sticky="w", pady=3)
-        ttk.Combobox(tab, textvariable=self.vars["access_position_case"], values=["lower", "asis"],
-                     state="readonly", width=10).grid(row=r, column=1, sticky="w")
+        ttk.Label(access, text="Регистр должности").grid(row=2, column=0, sticky="w", pady=4, padx=(0, 12))
+        ttk.Combobox(access, textvariable=self.vars["access_position_case"], values=["lower", "asis"],
+                     state="readonly", width=10).grid(row=2, column=1, sticky="w")
+
+        keys_box = ttk.LabelFrame(tab, text="Ключи", padding=12)
+        keys_box.grid(row=3, column=0, sticky="we", pady=(0, 10))
         self.default_format = tk.StringVar(value=KEY_FORMATS.get(self.cfg["key_format"], KEY_FORMATS["dec"]))
-        ttk.Label(tab, text="Формат ключей по умолчанию:").grid(row=r + 1, column=0, sticky="w", pady=3)
-        ttk.Combobox(tab, textvariable=self.default_format, values=list(KEY_FORMATS.values()),
-                     state="readonly", width=32).grid(row=r + 1, column=1, sticky="w")
+        ttk.Label(keys_box, text="Формат по умолчанию").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Combobox(keys_box, textvariable=self.default_format, values=list(KEY_FORMATS.values()),
+                     state="readonly", width=32).grid(row=0, column=1, sticky="w")
 
         row = ttk.Frame(tab)
-        row.grid(row=r + 2, column=0, columnspan=2, sticky="w", pady=12)
-        ttk.Button(row, text="Сохранить", command=self._on_save_settings).pack(side="left")
-        ttk.Button(row, text="Проверить подключение", command=self._on_test).pack(side="left", padx=6)
-        ttk.Label(tab, text=f"Файл настроек: {settings.settings_path()}", foreground="#6b7280").grid(
-            row=r + 3, column=0, columnspan=2, sticky="w")
+        row.grid(row=4, column=0, sticky="w")
+        ttk.Button(row, text="Сохранить", style="Accent.TButton", command=self._on_save_settings).pack(side="left")
+        ttk.Button(row, text="Проверить подключение", command=self._on_test).pack(side="left", padx=8)
+        ttk.Label(tab, text=f"Файл настроек: {settings.settings_path()}", style="Muted.TLabel").grid(
+            row=5, column=0, sticky="w", pady=(10, 0))
 
     def _collect_settings(self) -> dict:
         cfg = dict(self.cfg)
@@ -526,10 +564,7 @@ class App:
 
 def main():
     root = tk.Tk()
-    try:
-        ttk.Style().theme_use("vista" if os.name == "nt" else "clam")
-    except tk.TclError:
-        pass
+    theme.apply(root)
     App(root)
     root.mainloop()
 

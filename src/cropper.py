@@ -10,6 +10,8 @@ from typing import Optional
 
 from PIL import Image, ImageOps, ImageTk
 
+import theme
+
 RATIOS = {
     "3:4": (3, 4), "1:1": (1, 1), "4:3": (4, 3), "2:3": (2, 3), "3:2": (3, 2),
     "4:5": (4, 5), "5:4": (5, 4), "9:16": (9, 16), "16:9": (16, 9),
@@ -25,6 +27,7 @@ class CropDialog(tk.Toplevel):
         self.title("Фото — обрезка")
         self.transient(parent)
         self.resizable(False, False)
+        self.configure(background=theme.BG)
         self.result: Optional[bytes] = None
 
         img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
@@ -44,7 +47,7 @@ class CropDialog(tk.Toplevel):
         ttk.Label(top, text="Макс. сторона, px:").pack(side="left")
         ttk.Entry(top, textvariable=self.max_side, width=6).pack(side="left", padx=4)
 
-        self.canvas = tk.Canvas(self, width=_CW, height=_CH, bg="#202020", highlightthickness=0)
+        self.canvas = tk.Canvas(self, width=_CW, height=_CH, bg="#1f2937", highlightthickness=0)
         self.canvas.pack()
         self.canvas.bind("<ButtonPress-1>", self._drag_begin)
         self.canvas.bind("<B1-Motion>", self._drag_move)
@@ -62,7 +65,7 @@ class CropDialog(tk.Toplevel):
         btns.pack(fill="x")
         ttk.Button(btns, text="Без обрезки", command=lambda: self._finish(crop=False)).pack(side="left")
         ttk.Button(btns, text="Отмена", command=self.destroy).pack(side="right")
-        ttk.Button(btns, text="Готово", command=lambda: self._finish(crop=True)).pack(side="right", padx=6)
+        ttk.Button(btns, text="Готово", style="Accent.TButton", command=lambda: self._finish(crop=True)).pack(side="right", padx=6)
 
         self._photo_ref = None
         self._drag = None
