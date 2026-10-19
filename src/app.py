@@ -27,6 +27,7 @@ from sheets import Entry
 _MODES = {
     sheets.MODE_ADD: "Редактирование профиля",
     sheets.MODE_NEW: "Создание профиля",
+    sheets.MODE_ACCESS: "Access-база",
 }
 _STATUS = {
     importer.OK: ("Готово", "#1a7f37"),
@@ -252,8 +253,10 @@ class App:
             side="left", padx=(6, 0))
         ttk.Button(bar, text="Обновить списки", command=lambda: self._load_lookups_async(True)).pack(
             side="right")
-        ttk.Button(bar, text="Шаблон Excel…", command=self._on_save_template).pack(side="right", padx=6)
-        ttk.Button(bar, text="Из Excel…", command=self._on_load_xlsx).pack(side="right")
+        self.btn_template = ttk.Button(bar, text="Шаблон Excel…", command=self._on_save_template)
+        self.btn_template.pack(side="right", padx=6)
+        self.btn_xlsx = ttk.Button(bar, text="Из Excel…", command=self._on_load_xlsx)
+        self.btn_xlsx.pack(side="right")
 
         # --- вертикальный разделитель: сверху таблица+карточка, снизу запуск и лог
         vpane = ttk.PanedWindow(tab, orient="vertical")
@@ -306,7 +309,8 @@ class App:
         self.thumb_label.pack(fill="both", expand=True)
         photo_btns = ttk.Frame(panel, style="Panel.TFrame")
         photo_btns.grid(row=2, column=0, sticky="we", pady=(0, pad(12)))
-        ttk.Button(photo_btns, text="Выбрать фото…", command=self._on_pick_photo).pack(fill="x")
+        self.btn_pick = ttk.Button(photo_btns, text="Выбрать фото…", command=self._on_pick_photo)
+        self.btn_pick.pack(fill="x")
         self.btn_clear = ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo)
         self.btn_clear.pack(fill="x", pady=(4, 0))
 
@@ -341,21 +345,19 @@ class App:
         opts.grid(row=0, column=0, sticky="we", pady=(pad(10), 0))
         self.dry_run = tk.BooleanVar(value=True)
         self.allow_partial = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Dry-run (проверить, ничего не сохранять)",
-                        variable=self.dry_run).grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(opts, text="Сохранять валидные строки при ошибках в других",
-                        variable=self.allow_partial).grid(row=0, column=1, sticky="w", padx=(pad(18), 0))
+        self.chk_dry = ttk.Checkbutton(opts, text="Dry-run (проверить, ничего не сохранять)",
+                                       variable=self.dry_run)
+        self.chk_dry.grid(row=0, column=0, sticky="w")
+        self.chk_partial = ttk.Checkbutton(opts, text="Сохранять валидные строки при ошибках в других",
+                                           variable=self.allow_partial)
+        self.chk_partial.grid(row=0, column=1, sticky="w", padx=(pad(18), 0))
         opts.columnconfigure(1, weight=1)
 
         run_row = ttk.Frame(bottom)
         run_row.grid(row=1, column=0, sticky="we", pady=pad(10))
         self.run_button = ttk.Button(run_row, text="Импортировать", style="Accent.TButton",
-                                     command=self._on_import)
+                                     command=self._on_run)
         self.run_button.pack(side="left")
-        self.access_button = ttk.Button(run_row, text="Создать Access-базу…", command=self._on_make_access)
-        self.access_button.pack(side="left", padx=(10, 0))
-        if os.name != "nt":
-            self.access_button.configure(state="disabled", text="Создать Access-базу… (только Windows)")
         self.status = tk.StringVar(value="Готово к запуску")
         self.status_label = ttk.Label(run_row, textvariable=self.status, style="Muted.TLabel")
         self.status_label.pack(side="left", padx=14)
@@ -382,10 +384,20 @@ class App:
             return "break"
 
     def _refresh_mode(self):
-        new = self.mode.get() == sheets.MODE_NEW
+        mode = self.mode.get()
+        new, view = mode == sheets.MODE_NEW, mode == sheets.MODE_ACCESS
         self.btn_add.configure(state="normal" if new else "disabled")
         self.btn_find.configure(state="disabled" if new else "normal")
-        self.panel_title.set("Новый профиль" if new else "Редактирование профиля")
+        for w in (self.btn_xlsx, self.btn_template, self.chk_dry, self.chk_partial):
+            w.configure(state="disabled" if view else "normal")
+        self.panel_title.set("Новый профиль" if new else "Карточка (только просмотр)" if view
+                             else "Редактирование профиля")
+        if view:
+            self.run_button.configure(text="Создать Access-базу…")
+            if os.name != "nt":
+                self.status.set("Создание Access-базы доступно только в Windows")
+        else:
+            self.run_button.configure(text="Импортировать")
         self.btn_clear.configure(text="Убрать фото" if new else "Вернуть исходное фото")
 
     def _on_mode_change(self):
@@ -441,12 +453,12 @@ class App:
         finally:
             self._loading = False
         has = idx is not None
+        view = self.mode.get() == sheets.MODE_ACCESS
+        editable = has and not view
         from_db = has and self.entries[idx].employee_id is not None
-        self.e_name.configure(state="normal" if has else "disabled")
-        self.e_keys.configure(state="normal" if has else "disabled")
-        self.c_pos.configure(state="normal" if has else "disabled")
-        self.c_grp.configure(state="normal" if has else "disabled")
-        if from_db:
+        for w in (self.e_name, self.e_keys, self.c_pos, self.c_grp, self.btn_pick, self.btn_clear):
+            w.configure(state="normal" if editable else "disabled")
+        if from_db and not view:
             self.btn_revert.grid()
         else:
             self.btn_revert.grid_remove()
@@ -607,8 +619,17 @@ class App:
         if not sheets.open_in_editor(dest):
             messagebox.showinfo("Шаблон", f"Файл создан: {dest}")
 
+    def _on_run(self):
+        if self.mode.get() == sheets.MODE_ACCESS:
+            self._on_make_access()
+        else:
+            self._on_import()
+
     def _on_make_access(self):
         if self.busy:
+            return
+        if os.name != "nt":
+            messagebox.showinfo("Access", "Создание Access-базы доступно только в Windows.")
             return
         entries = [e for e in self.entries if e.fullname.strip() and not e.fullname.startswith("#")]
         if not entries:
@@ -620,7 +641,6 @@ class App:
             return
         self.busy = True
         self.run_button.configure(state="disabled")
-        self.access_button.configure(state="disabled")
         self.status.set("Создаю Access-базу…")
         self.status_label.configure(foreground="#374151")
         self.log_text.configure(state="normal")
@@ -773,8 +793,6 @@ class App:
                 elif kind == "done":
                     self.busy = False
                     self.run_button.configure(state="normal")
-                    if os.name == "nt":
-                        self.access_button.configure(state="normal")
                     text, color = _STATUS.get(payload, ("Завершено", "#374151"))
                     self.status.set(text)
                     self.status_label.configure(foreground=color)

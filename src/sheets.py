@@ -20,6 +20,7 @@ from keys import parse_keys
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 MODE_ADD = "add"
 MODE_NEW = "new"
+MODE_ACCESS = "access"  # только просмотр и выгрузка карточек в Access
 TEMPLATES = {MODE_ADD: TEMPLATES_DIR / "template_add.xlsx", MODE_NEW: TEMPLATES_DIR / "template_new.xlsx"}
 ACCESS_TEMPLATE = TEMPLATES_DIR / "template.accdb"
 
