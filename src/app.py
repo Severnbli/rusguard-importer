@@ -21,7 +21,7 @@ import importer
 import settings
 import sheets
 import theme
-from keys import KEY_FORMATS, parse_keys
+from keys import KEY_FORMATS, format_key, parse_keys, reformat_keys
 from sheets import Entry
 
 _MODES = {
@@ -143,8 +143,11 @@ class App:
             ttk.Radiobutton(head, text=text, value=value, variable=self.mode, style="Seg.Toolbutton",
                             command=self._on_mode_change).pack(side="left", padx=(0, 2))
         self.key_format = tk.StringVar(value=KEY_FORMATS.get(self.cfg["key_format"], KEY_FORMATS["dec"]))
-        ttk.Combobox(head, textvariable=self.key_format, values=list(KEY_FORMATS.values()),
-                     state="readonly", width=26).pack(side="right")
+        fmt_box = ttk.Combobox(head, textvariable=self.key_format, values=list(KEY_FORMATS.values()),
+                               state="readonly", width=26)
+        fmt_box.pack(side="right")
+        self._prev_format = self._key_format_code()
+        fmt_box.bind("<<ComboboxSelected>>", lambda e: self._on_format_change())
         ttk.Label(head, text="Формат ключей:", style="Muted.TLabel").pack(side="right", padx=(0, 8))
 
         # --- панель инструментов
@@ -222,19 +225,18 @@ class App:
         ttk.Label(panel, text="ФИО", style="Card.TLabel").grid(row=3, column=0, sticky="w")
         self.e_name = ttk.Entry(panel, textvariable=self.v_name)
         self.e_name.grid(row=4, column=0, sticky="we", pady=field_pad)
-        self.lbl_keys = ttk.Label(panel, style="Card.TLabel")
+        self.lbl_keys = ttk.Label(panel, style="Card.TLabel", text="Ключ(и) — через запятую")
         self.lbl_keys.grid(row=5, column=0, sticky="w")
         self.e_keys = ttk.Entry(panel, textvariable=self.v_keys)
         self.e_keys.grid(row=6, column=0, sticky="we", pady=field_pad)
-        self.cur_keys_frame = ttk.Frame(panel, style="Panel.TFrame")
-        self.cur_keys_frame.grid(row=7, column=0, sticky="we", pady=(0, pad(10)))
-        self._rm_vars: list = []
         ttk.Label(panel, text="Должность", style="Card.TLabel").grid(row=8, column=0, sticky="w")
         self.c_pos = ttk.Combobox(panel, textvariable=self.v_pos)
         self.c_pos.grid(row=9, column=0, sticky="we", pady=field_pad)
         ttk.Label(panel, text="Группа", style="Card.TLabel").grid(row=10, column=0, sticky="w")
         self.c_grp = ttk.Combobox(panel, textvariable=self.v_grp)
         self.c_grp.grid(row=11, column=0, sticky="we", pady=(2, 0))
+        self.btn_revert = ttk.Button(panel, text="Откатить к данным из БД", command=self._on_revert)
+        self.btn_revert.grid(row=12, column=0, sticky="we", pady=(pad(14), 0))
         for var in (self.v_name, self.v_keys, self.v_pos, self.v_grp):
             var.trace_add("write", lambda *a: self._on_edit())
 
@@ -293,7 +295,6 @@ class App:
         self.btn_add.configure(state="normal" if new else "disabled")
         self.btn_find.configure(state="disabled" if new else "normal")
         self.panel_title.set("Новый профиль" if new else "Редактирование профиля")
-        self.lbl_keys.configure(text="Ключ(и) — через запятую" if new else "Добавить ключ(и) — через запятую")
         self.btn_clear.configure(text="Убрать фото" if new else "Вернуть исходное фото")
 
     def _on_mode_change(self):
@@ -305,6 +306,14 @@ class App:
         self.entries = []
         self._rebuild_tree()
         self._refresh_mode()
+
+    def _on_format_change(self):
+        new_fmt = self._key_format_code()
+        for e in self.entries:
+            if e.employee_id and e.keys.strip():
+                e.keys = reformat_keys(e.keys, self._prev_format, new_fmt)
+        self._prev_format = new_fmt
+        self._rebuild_tree(select=self._selected_index())
 
     def _key_format_code(self) -> str:
         return next(k for k, v in KEY_FORMATS.items() if v == self.key_format.get())
@@ -322,10 +331,7 @@ class App:
 
     @staticmethod
     def _tree_values(e: Entry):
-        keys = e.keys
-        if e.remove_keys:
-            keys = (keys + " " if keys else "") + "(снять: " + ", ".join(str(k) for k in e.remove_keys) + ")"
-        return (e.fullname, keys, e.position, e.group, "да" if e.photo else "")
+        return (e.fullname, e.keys, e.position, e.group, "да" if e.photo else "")
 
     def _selected_index(self):
         sel = self.tree.selection()
@@ -343,45 +349,29 @@ class App:
             self._show_thumb(e.photo)
         finally:
             self._loading = False
-        new = self.mode.get() == sheets.MODE_NEW
         has = idx is not None
-        entry = self.entries[idx] if has else None
-        locked = has and entry.employee_id is not None
-        self.e_name.configure(state="disabled" if (not has or locked) else "normal")
+        from_db = has and self.entries[idx].employee_id is not None
+        self.e_name.configure(state="normal" if has else "disabled")
         self.e_keys.configure(state="normal" if has else "disabled")
         self.c_pos.configure(state="normal" if has else "disabled")
         self.c_grp.configure(state="normal" if has else "disabled")
-        self._render_current_keys(entry if (has and not new) else None)
+        if from_db:
+            self.btn_revert.grid()
+        else:
+            self.btn_revert.grid_remove()
 
-    def _render_current_keys(self, entry):
-        for w in self.cur_keys_frame.winfo_children():
-            w.destroy()
-        self._rm_vars = []
-        if entry is None:
-            return
-        if not entry.current_keys:
-            ttk.Label(self.cur_keys_frame, text="Текущих ключей нет", style="Card.TLabel",
-                      foreground=theme.MUTED).pack(anchor="w")
-            return
-        ttk.Label(self.cur_keys_frame, text="Текущие ключи (отметьте, чтобы снять):",
-                  style="Card.TLabel").pack(anchor="w")
-        for key in entry.current_keys:
-            var = tk.BooleanVar(value=key in entry.remove_keys)
-            var.trace_add("write", lambda *a, k=key, v=var: self._on_toggle_key(k, v))
-            self._rm_vars.append(var)
-            ttk.Checkbutton(self.cur_keys_frame, text=str(key), variable=var,
-                            style="Card.TCheckbutton").pack(anchor="w")
-
-    def _on_toggle_key(self, key, var):
+    def _on_revert(self):
         idx = self._selected_index()
-        if idx is None or self._loading:
+        if idx is None:
             return
         e = self.entries[idx]
-        if var.get() and key not in e.remove_keys:
-            e.remove_keys.append(key)
-        elif not var.get() and key in e.remove_keys:
-            e.remove_keys.remove(key)
+        if e.employee_id is None:
+            return
+        e.fullname = e.fullname_original
+        e.keys = ", ".join(format_key(k, self._key_format_code()) for k in e.current_keys)
+        e.position, e.group, e.photo = e.position_original, e.group_original, e.photo_original
         self.tree.item(str(idx), values=self._tree_values(e))
+        self._load_selected()
 
     def _bind_wheel(self, outer, canvas):
         """Колесо мыши прокручивает панель, пока указатель над ней."""
@@ -442,8 +432,11 @@ class App:
             return
         for emp_id, fio in chosen:
             p = profiles[emp_id]
+            fmt = self._key_format_code()
             self.entries.append(Entry(
-                fullname=fio, employee_id=emp_id, photo=p["photo"], photo_original=p["photo"],
+                fullname=fio, fullname_original=fio, employee_id=emp_id,
+                keys=", ".join(format_key(k, fmt) for k in p["keys"]),
+                photo=p["photo"], photo_original=p["photo"],
                 position=p["position"], position_original=p["position"],
                 group=p["group"], group_original=p["group"], current_keys=p["keys"],
             ))

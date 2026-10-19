@@ -101,6 +101,9 @@ def _process_row(cur, row, mode: str, log):
             raise RuntimeError("сотрудник с таким ФИО уже есть в БД — для добавления ключа используйте другой режим")
         employee_id = created_id = db.create_employee(cur, row)
         log(f"{row.label}: профиль создан")
+    if row.rename:
+        db.update_employee_name(cur, employee_id, row.lastname, row.firstname, row.secondname)
+        log(f"{row.label}: ФИО изменено")
     if mode == sheets.MODE_ADD and (row.position_id or row.group_id):
         db.update_employee(cur, employee_id, row.position_id, row.group_id)
         log(f"{row.label}: должность/группа обновлены")

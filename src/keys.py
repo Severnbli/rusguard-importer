@@ -58,3 +58,23 @@ def parse_keys(value, key_format: str) -> tuple:
         if number not in numbers:
             numbers.append(number)
     return numbers, errors
+
+
+def format_key(number: int, key_format: str) -> str:
+    """Обратное преобразование номера ключа в текст выбранного формата."""
+    if key_format == "dec":
+        return str(number)
+    digits = f"{number:X}"
+    if len(digits) % 2:
+        digits = "0" + digits
+    if key_format == "hex_rev":
+        digits = "".join(reversed([digits[i:i + 2] for i in range(0, len(digits), 2)]))
+    return digits
+
+
+def reformat_keys(text: str, old_format: str, new_format: str) -> str:
+    """Переводит список ключей в тексте из одного формата в другой (при ошибке разбора — без изменений)."""
+    numbers, errors = parse_keys(text, old_format)
+    if errors or not numbers:
+        return text
+    return ", ".join(format_key(n, new_format) for n in numbers)

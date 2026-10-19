@@ -40,8 +40,8 @@ class Entry:
     photo_original: Optional[bytes] = None
     position_original: str = ""
     group_original: str = ""
-    current_keys: list = field(default_factory=list)
-    remove_keys: list = field(default_factory=list)  # ключи, которые нужно снять с сотрудника
+    current_keys: list = field(default_factory=list)  # ключи сотрудника в БД (числа)
+    fullname_original: str = ""
 
 
 @dataclass
@@ -58,6 +58,7 @@ class Row:
     photo: Optional[bytes] = None
     employee_id: Optional[str] = None
     remove_keys: list = field(default_factory=list)
+    rename: bool = False
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
 
@@ -122,12 +123,19 @@ def build_rows(entries: list, mode: str, key_format: str, positions: list, group
 
         if mode == MODE_ADD:
             row.photo = entry.photo if entry.photo and entry.photo != entry.photo_original else None
-            row.remove_keys = list(entry.remove_keys)
+            if entry.employee_id:
+                # для сотрудника из БД поле ключей — полный список: разница с БД = добавить/снять
+                wanted = row.keys
+                row.keys = [k for k in wanted if k not in entry.current_keys]
+                if not key_errors:
+                    row.remove_keys = [k for k in entry.current_keys if k not in wanted]
+                row.rename = fullname != entry.fullname_original.strip()
             if entry.position.strip() != entry.position_original.strip():
                 row.position_id = _resolve(entry.position, pos_lookup, "должность", row)
             if entry.group.strip() != entry.group_original.strip():
                 row.group_id = _resolve(entry.group, grp_lookup, "группа", row)
-            if not (row.keys or row.remove_keys or row.photo or row.position_id or row.group_id or row.errors):
+            if not (row.keys or row.remove_keys or row.rename or row.photo or row.position_id or row.group_id
+                    or row.errors):
                 row.errors.append("нет изменений")
             continue
 

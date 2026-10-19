@@ -226,6 +226,13 @@ def update_employee(cur, employee_id, position_id, group_id) -> None:
         cur.execute(f"UPDATE employee SET {', '.join(parts)} WHERE _id = %s", (*values, employee_id))
 
 
+def update_employee_name(cur, employee_id, lastname, firstname, secondname) -> None:
+    cur.execute(
+        "UPDATE employee SET lastname = %s, firstname = %s, secondname = %s WHERE _id = %s",
+        (lastname or None, firstname or None, secondname, employee_id),
+    )
+
+
 def unassign_key(cur, employee_id, keynumber: int) -> bool:
     """Снимает активное назначение ключа сотруднику (сам ключ остаётся в acskeys)."""
     cur.execute(
