@@ -19,6 +19,7 @@ DEFAULTS = {
     "key_format": "dec",
     "photo_ratio": "3:4",
     "photo_max_side": "800",
+    "ui_scale": "100",
 }
 
 
