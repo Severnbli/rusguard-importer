@@ -18,6 +18,7 @@ import cropper
 import db
 import access_export
 import importer
+import login
 import settings
 import sheets
 import theme
@@ -314,6 +315,8 @@ class App:
         self.btn_pick.pack(fill="x")
         self.btn_clear = ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo)
         self.btn_clear.pack(fill="x", pady=(4, 0))
+        self.btn_export = ttk.Button(photo_btns, text="Сохранить фото в файл…", command=self._on_export_photo)
+        self.btn_export.pack(fill="x", pady=(4, 0))
 
         self.v_name, self.v_keys = tk.StringVar(), tk.StringVar()
         self.v_pos, self.v_grp = tk.StringVar(), tk.StringVar()
@@ -504,7 +507,28 @@ class App:
         e.position, e.group = self.v_pos.get(), self.v_grp.get()
         self.tree.item(str(idx), values=self._tree_values(e))
 
+    def _on_export_photo(self):
+        idx = self._selected_index()
+        photo = self.entries[idx].photo if idx is not None else None
+        if not photo:
+            return
+        name = self.entries[idx].fullname.strip().replace("/", "_") or "photo"
+        path = filedialog.asksaveasfilename(
+            title="Сохранить фото", defaultextension=".jpg", initialfile=f"{name}.jpg",
+            filetypes=[("JPEG", "*.jpg"), ("PNG", "*.png"), ("BMP", "*.bmp")],
+        )
+        if not path:
+            return
+        try:
+            im = Image.open(io.BytesIO(photo))
+            if path.lower().endswith((".jpg", ".jpeg", ".bmp")):
+                im = im.convert("RGB")
+            im.save(path)
+        except Exception as exc:
+            messagebox.showerror("Фото", f"Не удалось сохранить фото:\n{exc}")
+
     def _show_thumb(self, photo):
+        self.btn_export.configure(state="normal" if photo else "disabled")
         if not photo:
             self._thumb = None
             self.thumb_label.configure(image="", text="нет фото")
@@ -818,6 +842,11 @@ def main():
     root = tk.Tk()
     scale = str(settings.load().get("ui_scale", "100")).strip()
     theme.apply(root, int(scale) if scale.isdigit() else 100)
+    root.withdraw()
+    if not login.ensure_unlocked(root):
+        root.destroy()
+        return
+    root.deiconify()
     App(root)
     root.mainloop()
 
