@@ -24,8 +24,8 @@ from keys import KEY_FORMATS, parse_keys
 from sheets import Entry
 
 _MODES = {
-    sheets.MODE_ADD: "Добавить ключ существующему сотруднику",
-    sheets.MODE_NEW: "Создать новый профиль",
+    sheets.MODE_ADD: "Редактирование профиля",
+    sheets.MODE_NEW: "Создание профиля",
 }
 _STATUS = {
     importer.OK: ("Готово", "#1a7f37"),
@@ -175,7 +175,7 @@ class App:
         for col, title in (("fio", "ФИО"), ("keys", "Ключи"), ("position", "Должность"),
                            ("group", "Группа"), ("photo", "Фото")):
             self.tree.heading(col, text=title, anchor="w")
-            self.tree.column(col, width=pad(80), minwidth=pad(60), anchor="w", stretch=False)
+            self.tree.column(col, width=pad(80), minwidth=20, anchor="w", stretch=False)
         self.tree.tag_configure("odd", background=theme.ZEBRA)
         sb = ttk.Scrollbar(tree_card, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -183,34 +183,46 @@ class App:
         sb.grid(row=0, column=1, sticky="ns")
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._load_selected())
         self.tree.bind("<Configure>", self._fit_columns)
+        for seq in ("<Button-1>", "<Double-Button-1>"):
+            self.tree.bind(seq, self._block_resize)
 
         panel = ttk.Frame(hpane, style="Card.TFrame", padding=pad(16))
+        panel.columnconfigure(0, weight=1)
         hpane.add(panel, weight=1)
-        ttk.Label(panel, text="Выбранная строка", style="CardTitle.TLabel").pack(anchor="w", pady=(0, pad(10)))
+        self.panel_title = tk.StringVar()
+        ttk.Label(panel, textvariable=self.panel_title, style="CardTitle.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(0, pad(10)))
 
         photo_frame = ttk.Frame(panel, style="Photo.TFrame", width=pad(180), height=pad(240))
-        photo_frame.pack(pady=(0, pad(8)))
+        photo_frame.grid(row=1, column=0, pady=(0, pad(8)))
+        photo_frame.grid_propagate(False)
         photo_frame.pack_propagate(False)
         self.thumb_label = ttk.Label(photo_frame, text="нет фото", style="Photo.TLabel")
         self.thumb_label.pack(fill="both", expand=True)
         photo_btns = ttk.Frame(panel, style="Card.TFrame")
-        photo_btns.pack(fill="x", pady=(0, pad(12)))
+        photo_btns.grid(row=2, column=0, sticky="we", pady=(0, pad(12)))
         ttk.Button(photo_btns, text="Выбрать фото…", command=self._on_pick_photo).pack(fill="x")
-        ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo).pack(fill="x", pady=(4, 0))
+        self.btn_clear = ttk.Button(photo_btns, text="Убрать фото", command=self._on_clear_photo)
+        self.btn_clear.pack(fill="x", pady=(4, 0))
 
         self.v_name, self.v_keys = tk.StringVar(), tk.StringVar()
         self.v_pos, self.v_grp = tk.StringVar(), tk.StringVar()
-        ttk.Label(panel, text="ФИО", style="Card.TLabel").pack(anchor="w")
+        field_pad = (2, pad(10))
+        ttk.Label(panel, text="ФИО", style="Card.TLabel").grid(row=3, column=0, sticky="w")
         self.e_name = ttk.Entry(panel, textvariable=self.v_name)
-        self.e_name.pack(fill="x", pady=(2, pad(10)))
-        ttk.Label(panel, text="Ключ(и) — через запятую", style="Card.TLabel").pack(anchor="w")
-        ttk.Entry(panel, textvariable=self.v_keys).pack(fill="x", pady=(2, pad(10)))
-        ttk.Label(panel, text="Должность", style="Card.TLabel").pack(anchor="w")
+        self.e_name.grid(row=4, column=0, sticky="we", pady=field_pad)
+        self.lbl_keys = ttk.Label(panel, style="Card.TLabel")
+        self.lbl_keys.grid(row=5, column=0, sticky="w")
+        self.e_keys = ttk.Entry(panel, textvariable=self.v_keys)
+        self.e_keys.grid(row=6, column=0, sticky="we", pady=field_pad)
+        self.lbl_cur_keys = ttk.Label(panel, style="Card.TLabel", foreground=theme.MUTED, wraplength=pad(300))
+        self.lbl_cur_keys.grid(row=7, column=0, sticky="w", pady=(0, pad(10)))
+        ttk.Label(panel, text="Должность", style="Card.TLabel").grid(row=8, column=0, sticky="w")
         self.c_pos = ttk.Combobox(panel, textvariable=self.v_pos)
-        self.c_pos.pack(fill="x", pady=(2, pad(10)))
-        ttk.Label(panel, text="Группа", style="Card.TLabel").pack(anchor="w")
+        self.c_pos.grid(row=9, column=0, sticky="we", pady=field_pad)
+        ttk.Label(panel, text="Группа", style="Card.TLabel").grid(row=10, column=0, sticky="w")
         self.c_grp = ttk.Combobox(panel, textvariable=self.v_grp)
-        self.c_grp.pack(fill="x", pady=(2, 0))
+        self.c_grp.grid(row=11, column=0, sticky="we", pady=(2, 0))
         for var in (self.v_name, self.v_keys, self.v_pos, self.v_grp):
             var.trace_add("write", lambda *a: self._on_edit())
 
@@ -263,21 +275,25 @@ class App:
         self._refresh_mode()
         self._load_selected()
 
-    # доли ширины для столбцов таблицы; «Фото» — фиксированный
-    _COL_WEIGHTS = (("fio", 4), ("keys", 2.4), ("position", 2), ("group", 1.6))
+    # ширина столбцов — фиксированные доли ширины таблицы
+    _COL_PERCENT = (("fio", 0.38), ("keys", 0.22), ("position", 0.17), ("group", 0.15), ("photo", 0.08))
 
     def _fit_columns(self, event):
-        photo_w = theme.px(70)
-        free = max(event.width - photo_w - 4, 200)
-        total = sum(w for _, w in self._COL_WEIGHTS)
-        for col, weight in self._COL_WEIGHTS:
-            self.tree.column(col, width=int(free * weight / total))
-        self.tree.column("photo", width=photo_w)
+        total = max(event.width - 4, 300)
+        for col, share in self._COL_PERCENT:
+            self.tree.column(col, width=int(total * share))
+
+    def _block_resize(self, event):
+        if self.tree.identify_region(event.x, event.y) == "separator":
+            return "break"
 
     def _refresh_mode(self):
         new = self.mode.get() == sheets.MODE_NEW
         self.btn_add.configure(state="normal" if new else "disabled")
         self.btn_find.configure(state="disabled" if new else "normal")
+        self.panel_title.set("Новый профиль" if new else "Редактирование профиля")
+        self.lbl_keys.configure(text="Ключ(и) — через запятую" if new else "Добавить ключ(и) — через запятую")
+        self.btn_clear.configure(text="Убрать фото" if new else "Вернуть исходное фото")
         access_ok = new and os.name == "nt"  # Access-драйвер ODBC есть только в Windows
         for w in (self.access_check, self.access_label, self.access_entry, self.access_btn):
             w.configure(state="normal" if access_ok else "disabled")
@@ -330,10 +346,21 @@ class App:
             self._loading = False
         new = self.mode.get() == sheets.MODE_NEW
         has = idx is not None
-        locked = has and self.entries[idx].employee_id is not None
+        entry = self.entries[idx] if has else None
+        locked = has and entry.employee_id is not None
         self.e_name.configure(state="disabled" if (not has or locked) else "normal")
-        self.c_pos.configure(state="normal" if (has and new) else "disabled")
-        self.c_grp.configure(state="normal" if (has and new) else "disabled")
+        self.e_keys.configure(state="normal" if has else "disabled")
+        self.c_pos.configure(state="normal" if has else "disabled")
+        self.c_grp.configure(state="normal" if has else "disabled")
+        if not new and has and entry.current_keys:
+            self.lbl_cur_keys.configure(
+                text="Текущие ключи: " + ", ".join(str(k) for k in entry.current_keys))
+            self.lbl_cur_keys.grid()
+        elif not new:
+            self.lbl_cur_keys.configure(text="Текущих ключей нет" if has else "")
+            self.lbl_cur_keys.grid()
+        else:
+            self.lbl_cur_keys.grid_remove()
 
     def _on_edit(self):
         if self._loading:
@@ -351,9 +378,14 @@ class App:
             self._thumb = None
             self.thumb_label.configure(image="", text="нет фото")
             return
-        im = Image.open(io.BytesIO(photo))
-        im.thumbnail((theme.px(180), theme.px(240)))
-        self._thumb = ImageTk.PhotoImage(im)
+        try:
+            im = Image.open(io.BytesIO(photo))
+            im.thumbnail((theme.px(180), theme.px(240)))
+            self._thumb = ImageTk.PhotoImage(im)
+        except Exception:
+            self._thumb = None
+            self.thumb_label.configure(image="", text="фото не читается")
+            return
         self.thumb_label.configure(image=self._thumb, text="")
 
     def _on_add_row(self):
@@ -365,11 +397,22 @@ class App:
         dlg = SearchDialog(self.root, self.cfg, self._key_format_code())
         self.root.wait_window(dlg)
         known = {e.employee_id for e in self.entries if e.employee_id}
-        for emp_id, fio, _position, _keys in dlg.result:
-            if emp_id not in known:
-                self.entries.append(Entry(fullname=fio, employee_id=emp_id))
-        if dlg.result:
-            self._rebuild_tree(select=len(self.entries) - 1)
+        chosen = [(i, fio) for i, fio, _p, _k in dlg.result if i not in known]
+        if not chosen:
+            return
+        try:
+            profiles = db.fetch_profiles(self.cfg, [i for i, _ in chosen])
+        except Exception as exc:
+            messagebox.showerror("Профили", f"Не удалось загрузить данные сотрудников:\n{exc}")
+            return
+        for emp_id, fio in chosen:
+            p = profiles[emp_id]
+            self.entries.append(Entry(
+                fullname=fio, employee_id=emp_id, photo=p["photo"], photo_original=p["photo"],
+                position=p["position"], position_original=p["position"],
+                group=p["group"], group_original=p["group"], current_keys=p["keys"],
+            ))
+        self._rebuild_tree(select=len(self.entries) - 1)
 
     def _on_delete(self):
         idx = self._selected_index()
@@ -403,9 +446,10 @@ class App:
     def _on_clear_photo(self):
         idx = self._selected_index()
         if idx is not None:
-            self.entries[idx].photo = None
-            self.tree.item(str(idx), values=self._tree_values(self.entries[idx]))
-            self._show_thumb(None)
+            e = self.entries[idx]
+            e.photo = e.photo_original  # у нового профиля исходного нет — фото убирается
+            self.tree.item(str(idx), values=self._tree_values(e))
+            self._show_thumb(e.photo)
 
     # ------------------------------------------------------------------ excel
     def _on_load_xlsx(self):
@@ -534,8 +578,7 @@ class App:
     def _on_import(self):
         if self.busy:
             return
-        entries = [Entry(e.fullname, e.keys, e.position, e.group, e.photo, e.employee_id)
-                   for e in self.entries]
+        entries = list(self.entries)
         if not entries:
             messagebox.showerror("Проверьте таблицу", "Таблица пуста.")
             return

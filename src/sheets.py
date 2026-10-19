@@ -36,6 +36,11 @@ class Entry:
     group: str = ""
     photo: Optional[bytes] = None
     employee_id: Optional[str] = None  # задан, если сотрудник выбран из БД
+    # исходные данные профиля из БД (режим редактирования) — чтобы отправлять только изменения
+    photo_original: Optional[bytes] = None
+    position_original: str = ""
+    group_original: str = ""
+    current_keys: list = field(default_factory=list)
 
 
 @dataclass
@@ -114,8 +119,13 @@ def build_rows(entries: list, mode: str, key_format: str, positions: list, group
         row.errors.extend(f"ключ: {e}" for e in key_errors)
 
         if mode == MODE_ADD:
-            if not row.keys and not key_errors and not entry.photo:
-                row.errors.append("не указан ключ или фото")
+            row.photo = entry.photo if entry.photo and entry.photo != entry.photo_original else None
+            if entry.position.strip() != entry.position_original.strip():
+                row.position_id = _resolve(entry.position, pos_lookup, "должность", row)
+            if entry.group.strip() != entry.group_original.strip():
+                row.group_id = _resolve(entry.group, grp_lookup, "группа", row)
+            if not (row.keys or row.photo or row.position_id or row.group_id or row.errors):
+                row.errors.append("нет изменений: укажите ключ, фото, должность или группу")
             continue
 
         norm = normalize_name(fullname)

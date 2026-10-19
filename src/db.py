@@ -173,6 +173,59 @@ def search_employees(cfg: dict, text: str, key_numbers=(), limit: int = 200) -> 
         conn.close()
 
 
+def fetch_profiles(cfg: dict, employee_ids: list) -> dict:
+    """Текущие данные профилей {id: {position, group, photo, keys}} для режима редактирования."""
+    result = {i: {"position": "", "group": "", "photo": None, "keys": []} for i in employee_ids}
+    if not employee_ids:
+        return result
+    conn = connect(cfg)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e._id::text, p.name, g.name
+                FROM employee e
+                LEFT JOIN employeeposition p ON p._id = e.employeepositionid
+                LEFT JOIN employeegroup g ON g._id = e.employeegroupid
+                WHERE e._id = ANY(%s::uuid[])
+                """,
+                (employee_ids,),
+            )
+            for emp_id, position, group in cur.fetchall():
+                result[emp_id]["position"], result[emp_id]["group"] = position or "", group or ""
+            cur.execute(
+                "SELECT DISTINCT ON (employeeid) employeeid::text, photo FROM employeephoto "
+                "WHERE employeeid = ANY(%s::uuid[]) ORDER BY employeeid, modificationdatetime DESC",
+                (employee_ids,),
+            )
+            for emp_id, photo in cur.fetchall():
+                if photo:
+                    result[emp_id]["photo"] = bytes(photo)
+            cur.execute(
+                "SELECT employeeid::text, acskeyid FROM acskey2employeeassignment "
+                "WHERE assignmentmodificationtype = 0 AND employeeid = ANY(%s::uuid[])",
+                (employee_ids,),
+            )
+            for emp_id, key in cur.fetchall():
+                result[emp_id]["keys"].append(key)
+    finally:
+        conn.close()
+    return result
+
+
+def update_employee(cur, employee_id, position_id, group_id) -> None:
+    """Меняет только переданные (не None) должность/группу."""
+    parts, values = [], []
+    if position_id:
+        parts.append("employeepositionid = %s")
+        values.append(position_id)
+    if group_id:
+        parts.append("employeegroupid = %s")
+        values.append(group_id)
+    if parts:
+        cur.execute(f"UPDATE employee SET {', '.join(parts)} WHERE _id = %s", (*values, employee_id))
+
+
 def fetch_card(cur, employee_id) -> dict:
     """ФИО, должность и последнее фото сотрудника — данные для карточки в Access."""
     cur.execute(

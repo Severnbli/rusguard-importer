@@ -118,6 +118,9 @@ def _process_row(cur, row, mode: str, log):
             raise RuntimeError("сотрудник с таким ФИО уже есть в БД — для добавления ключа используйте другой режим")
         employee_id = created_id = db.create_employee(cur, row)
         log(f"{row.label}: профиль создан")
+    if mode == sheets.MODE_ADD and (row.position_id or row.group_id):
+        db.update_employee(cur, employee_id, row.position_id, row.group_id)
+        log(f"{row.label}: должность/группа обновлены")
     if row.photo:
         db.upsert_photo(cur, employee_id, row.photo)
         log(f"{row.label}: фото сохранено")
