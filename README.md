@@ -12,7 +12,7 @@
 
 Скрипт скачает опубликованный образ и откроет окно приложения. Для локальной сборки вместо этого запустите `./importer.sh --build`.
 
-**Windows:** скачайте `RusGuardImporter.exe` из артефактов workflow **Build Windows exe** в разделе GitHub Actions и запустите его. Для режима Access-базы также нужен установленный Microsoft Access Database Engine.
+**Windows:** скачайте `RusGuardImporter.exe` из релиза и запустите его. Для режима Access-базы также нужен установленный Microsoft Access Database Engine.
 
 ## Первый запуск
 
