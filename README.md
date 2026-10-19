@@ -39,6 +39,17 @@ docker run --rm --network host -e DISPLAY=$DISPLAY -e HOME=/data --user $(id -u)
 
 `python -m venv venv && venv\Scripts\pip install -r requirements.txt`, затем `importer.bat` в корне проекта. Для Access-экспорта нужен драйвер «Microsoft Access Driver (*.mdb, *.accdb)» той же разрядности, что и Python.
 
+### Сборка .exe
+
+Готовый `RusGuardImporter.exe` собирает GitHub Actions (job `build-exe`, артефакт `RusGuardImporter-windows`). Локально, на Windows:
+
+```bat
+venv\Scripts\pip install pyinstaller
+venv\Scripts\pyinstaller --noconfirm --onefile --windowed --name RusGuardImporter --paths src --add-data "templates;templates" src\app.py
+```
+
+Результат — `dist\RusGuardImporter.exe`. Настройки хранятся отдельно (`%APPDATA%\rusguard-importer`), драйвер Access в `.exe` не входит.
+
 ## Настройки (вкладка «Настройки»)
 
 Хост, порт, база, пользователь, пароль, таблица Access, размер фото, регистр должности, формат ключей по умолчанию. Хранятся в `%APPDATA%\rusguard-importer\settings.json` (Linux: `~/.config/rusguard-importer/settings.json`), пароль — открытым текстом. Кнопка «Проверить подключение» проверяет доступ к БД.

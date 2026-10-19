@@ -1,4 +1,4 @@
-name: Publish Docker Image
+name: Publish Docker Image and Windows exe
 
 on:
   workflow_dispatch:
@@ -41,3 +41,34 @@ jobs:
             severnbli/rusguard-importer:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name RusGuardImporter
+          --paths src
+          --add-data "templates;templates"
+          src/app.py
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: RusGuardImporter-windows
+          path: dist/RusGuardImporter.exe
+          if-no-files-found: error

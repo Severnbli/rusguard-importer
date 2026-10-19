@@ -17,7 +17,9 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 from keys import parse_keys
 
-TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+# в собранном PyInstaller-приложении ресурсы распакованы в sys._MEIPASS
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+TEMPLATES_DIR = BASE_DIR / "templates"
 MODE_ADD = "add"
 MODE_NEW = "new"
 MODE_ACCESS = "access"  # только просмотр и выгрузка карточек в Access
