@@ -20,7 +20,7 @@ import importer
 import settings
 import sheets
 import theme
-from keys import KEY_FORMATS
+from keys import KEY_FORMATS, parse_keys
 from sheets import Entry
 
 _MODES = {
@@ -36,18 +36,19 @@ _IMAGE_TYPES = [("Изображения", "*.jpg *.jpeg *.png *.bmp *.gif *.tif
 
 
 class SearchDialog(tk.Toplevel):
-    """Поиск сотрудников в БД по ФИО; result — список выбранных (id, ФИО, должность)."""
+    """Поиск сотрудников в БД по ФИО или номеру ключа; result — выбранные (id, ФИО, должность, ключи)."""
 
-    def __init__(self, parent, cfg: dict):
+    def __init__(self, parent, cfg: dict, key_format: str):
         super().__init__(parent)
         self.title("Найти сотрудника в БД")
         self.cfg = cfg
+        self.key_format = key_format
         self.result: list = []
         self.found: list = []
         self.transient(parent)
         self.configure(background=theme.BG)
 
-        top = ttk.Frame(self, padding=10)
+        top = ttk.Frame(self, padding=(10, 10, 10, 0))
         top.pack(fill="x")
         self.query = tk.StringVar()
         entry = ttk.Entry(top, textvariable=self.query, width=40)
@@ -55,6 +56,8 @@ class SearchDialog(tk.Toplevel):
         entry.bind("<Return>", lambda e: self._search())
         ttk.Button(top, text="Найти", command=self._search).pack(side="left", padx=(6, 0))
 
+        ttk.Label(self, text="ФИО (часть слов) или номер ключа в выбранном формате", style="Muted.TLabel").pack(
+            anchor="w", padx=10, pady=(4, 8))
         self.listbox = tk.Listbox(self, selectmode="extended", width=70, height=14, relief="flat",
                                   highlightthickness=1, highlightbackground=theme.BORDER, activestyle="none")
         self.listbox.pack(fill="both", expand=True, padx=10)
@@ -72,15 +75,26 @@ class SearchDialog(tk.Toplevel):
         if not text:
             return
         try:
-            self.found = db.search_employees(self.cfg, text)
+            self.found = db.search_employees(self.cfg, text, self._key_candidates(text))
         except Exception as exc:
             messagebox.showerror("Поиск", str(exc), parent=self)
             return
         self.listbox.delete(0, "end")
-        for _id, fio, position in self.found:
-            self.listbox.insert("end", f"{fio}" + (f" — {position}" if position else ""))
+        for _id, fio, position, keys in self.found:
+            line = fio + (f" — {position}" if position else "")
+            if keys:
+                line += "   [ключи: " + ", ".join(str(k) for k in keys) + "]"
+            self.listbox.insert("end", line)
         if not self.found:
             self.listbox.insert("end", "Ничего не найдено")
+
+    def _key_candidates(self, text: str) -> set:
+        numbers: set = set()
+        for fmt in {self.key_format, "dec"}:
+            parsed, errors = parse_keys(text, fmt)
+            if not errors:
+                numbers.update(parsed)
+        return numbers
 
     def _accept(self):
         self.result = [self.found[i] for i in self.listbox.curselection() if i < len(self.found)]
@@ -348,10 +362,10 @@ class App:
         self.e_name.focus_set()
 
     def _on_find(self):
-        dlg = SearchDialog(self.root, self.cfg)
+        dlg = SearchDialog(self.root, self.cfg, self._key_format_code())
         self.root.wait_window(dlg)
         known = {e.employee_id for e in self.entries if e.employee_id}
-        for emp_id, fio, _position in dlg.result:
+        for emp_id, fio, _position, _keys in dlg.result:
             if emp_id not in known:
                 self.entries.append(Entry(fullname=fio, employee_id=emp_id))
         if dlg.result:

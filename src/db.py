@@ -129,23 +129,46 @@ def upsert_photo(cur, employee_id, photo: bytes) -> None:
     )
 
 
-def search_employees(cfg: dict, text: str, limit: int = 100) -> list:
-    """Поиск активных сотрудников по ФИО -> [(id, ФИО, должность)]."""
-    pattern = "%" + text.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+def search_employees(cfg: dict, text: str, key_numbers=(), limit: int = 200) -> list:
+    """Активные сотрудники, у которых все слова запроса входят в ФИО либо назначен один из key_numbers
+    -> [(id, ФИО, должность, [ключи])]. Фильтрация по ФИО в Python: ILIKE не работает
+    с недетерминированными правилами сортировки."""
+    words = text.casefold().split()
     conn = connect(cfg)
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT e._id::text, concat_ws(' ', e.lastname, e.firstname, e.secondname) AS fio, p.name
+                SELECT e._id::text, concat_ws(' ', e.lastname, e.firstname, e.secondname), p.name
                 FROM employee e LEFT JOIN employeeposition p ON p._id = e.employeepositionid
                 WHERE e.isremoved = false
-                  AND concat_ws(' ', e.lastname, e.firstname, e.secondname) ILIKE %s
-                ORDER BY fio LIMIT %s
-                """,
-                (pattern, limit),
+                """
             )
-            return cur.fetchall()
+            employees = cur.fetchall()
+            holders = set()
+            if key_numbers:
+                cur.execute(
+                    "SELECT employeeid::text FROM acskey2employeeassignment "
+                    "WHERE assignmentmodificationtype = 0 AND acskeyid = ANY(%s)",
+                    (list(key_numbers),),
+                )
+                holders = {r[0] for r in cur.fetchall()}
+            found = [
+                e for e in employees
+                if e[0] in holders or (words and all(w in (e[1] or "").casefold() for w in words))
+            ]
+            found.sort(key=lambda e: (e[1] or "").casefold())
+            found = found[:limit]
+            keys_by_employee: dict = {}
+            if found:
+                cur.execute(
+                    "SELECT employeeid::text, acskeyid FROM acskey2employeeassignment "
+                    "WHERE assignmentmodificationtype = 0 AND employeeid = ANY(%s::uuid[])",
+                    ([e[0] for e in found],),
+                )
+                for emp_id, key in cur.fetchall():
+                    keys_by_employee.setdefault(emp_id, []).append(key)
+            return [(i, fio, pos, keys_by_employee.get(i, [])) for i, fio, pos in found]
     finally:
         conn.close()
 
