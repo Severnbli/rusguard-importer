@@ -34,6 +34,7 @@ _STATUS = {
     importer.FAILED_TO_START: ("Не удалось начать — см. лог", "#b91c1c"),
     importer.PROBLEMS: ("Есть проблемы — см. лог", "#b45309"),
 }
+_NO_ACCESS_MSG = "Создание Access-базы доступно только в Windows"
 _IMAGE_TYPES = [("Изображения", "*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp"), ("Все файлы", "*.*")]
 
 
@@ -395,9 +396,11 @@ class App:
         if view:
             self.run_button.configure(text="Создать Access-базу…")
             if os.name != "nt":
-                self.status.set("Создание Access-базы доступно только в Windows")
+                self.status.set(_NO_ACCESS_MSG)
         else:
             self.run_button.configure(text="Импортировать")
+            if self.status.get() == _NO_ACCESS_MSG:
+                self.status.set("Готово к запуску")
         self.btn_clear.configure(text="Убрать фото" if new else "Вернуть исходное фото")
 
     def _on_mode_change(self):
