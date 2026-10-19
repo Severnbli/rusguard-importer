@@ -119,7 +119,7 @@ def apply(root: tk.Tk, scale_percent: int = 100) -> None:
               foreground=[("selected", "#ffffff")])
 
     style.configure("TEntry", padding=px(9), fieldbackground=CARD)
-    style.configure("TCombobox", padding=px(9), fieldbackground=CARD, arrowsize=px(18))
+    style.configure("TCombobox", padding=px(9), fieldbackground=CARD, arrowsize=px(34), arrowcolor=FG)
     style.map("TCombobox", fieldbackground=[("readonly", CARD), ("disabled", "#f3f4f6")])
     style.map("TEntry", fieldbackground=[("disabled", "#f3f4f6")])
     style.configure("TScrollbar", arrowsize=px(16))
