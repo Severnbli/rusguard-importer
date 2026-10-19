@@ -15,13 +15,22 @@ importer.bat, requirements.txt                запуск в Windows
 ## Запуск в Linux (Docker)
 
 ```bash
-./importer.sh        # docker compose run --rm --build importer
+./importer.sh            # скачивает и запускает severnbli/rusguard-importer:latest
+./importer.sh --build    # собрать образ локально из исходников
+```
+
+Без клонирования репозитория достаточно образа:
+
+```bash
+mkdir -p data && xhost +SI:localuser:$USER
+docker run --rm --network host -e DISPLAY=$DISPLAY -e HOME=/data --user $(id -u):$(id -g) \
+  -v /tmp/.X11-unix:/tmp/.X11-unix -v "$PWD/data:/data" severnbli/rusguard-importer:latest
 ```
 
 Нужны Docker с compose-плагином и X-сервер (для Wayland — XWayland). Скрипт разрешает контейнеру доступ к X-серверу через `xhost` (пакет `xorg-xhost`/`x11-xserver-utils`; если его нет — выполните `xhost +SI:localuser:$USER` самостоятельно).
 
 - Папка `data/` в корне проекта монтируется в контейнер как `/data`: там лежат настройки (`data/.config/rusguard-importer/settings.json`), а рабочие Excel-файлы и фото нужно хранить в ней, чтобы они были видны в окнах выбора файлов.
-- Шаблоны из `templates/` монтируются в контейнер только для чтения.
+- Шаблоны уже находятся внутри образа.
 - Внутри контейнера нет Excel-редактора: после «Создать из шаблона…» откройте созданный файл из `data/` на хосте сами.
 - Контейнер использует сеть хоста, поэтому PostgreSQL доступен так же, как с хоста.
 - Access-экспорт в Linux недоступен (в интерфейсе отключён).
