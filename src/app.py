@@ -37,17 +37,23 @@ _IMAGE_TYPES = [("Изображения", "*.jpg *.jpeg *.png *.bmp *.gif *.tif
 
 
 class SearchDialog(tk.Toplevel):
-    """Поиск сотрудников в БД по ФИО или номеру ключа; result — выбранные (id, ФИО, должность, ключи)."""
+    """Поиск сотрудников по ФИО/ключу или по группе; result — выбранные (id, ФИО, должность, ключи)."""
 
-    def __init__(self, parent, cfg: dict, key_format: str):
+    def __init__(self, parent, cfg: dict, key_format: str, groups: list):
         super().__init__(parent)
-        self.title("Найти сотрудника в БД")
+        self.title("Найти в БД")
         self.cfg = cfg
         self.key_format = key_format
+        self.groups = sorted(((i, n) for i, n in groups if n), key=lambda g: g[1].casefold())
         self.result: list = []
         self.found: list = []
+        self._photos: dict = {}
+        self._thumb = None
+        self._photo_queue: "queue.Queue" = queue.Queue()
+        self._shown_id = None
         self.transient(parent)
         self.configure(background=theme.BG)
+        pad = theme.px
 
         top = ttk.Frame(self, padding=(10, 10, 10, 0))
         top.pack(fill="x")
@@ -56,38 +62,121 @@ class SearchDialog(tk.Toplevel):
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda e: self._search())
         ttk.Button(top, text="Найти", command=self._search).pack(side="left", padx=(6, 0))
+        ttk.Label(self, text="ФИО (часть слов) или номер ключа в выбранном формате",
+                  style="Muted.TLabel").pack(anchor="w", padx=10, pady=(4, 6))
 
-        ttk.Label(self, text="ФИО (часть слов) или номер ключа в выбранном формате", style="Muted.TLabel").pack(
-            anchor="w", padx=10, pady=(4, 8))
-        self.listbox = tk.Listbox(self, selectmode="extended", width=70, height=14, relief="flat",
+        grp = ttk.Frame(self, padding=(10, 0, 10, 8))
+        grp.pack(fill="x")
+        ttk.Label(grp, text="Или группа:").pack(side="left")
+        self.group = tk.StringVar()
+        ttk.Combobox(grp, textvariable=self.group, values=[n for _, n in self.groups],
+                     state="readonly", width=28).pack(side="left", padx=8)
+        ttk.Button(grp, text="Показать сотрудников", command=self._show_group).pack(side="left")
+
+        body = ttk.Frame(self, padding=(10, 0))
+        body.pack(fill="both", expand=True)
+        self.listbox = tk.Listbox(body, selectmode="extended", width=70, height=14, relief="flat",
                                   highlightthickness=1, highlightbackground=theme.BORDER, activestyle="none")
-        self.listbox.pack(fill="both", expand=True, padx=10)
+        self.listbox.pack(side="left", fill="both", expand=True)
         self.listbox.bind("<Double-Button-1>", lambda e: self._accept())
+        self.listbox.bind("<<ListboxSelect>>", lambda e: self._on_select())
+        photo_frame = ttk.Frame(body, style="Photo.TFrame", width=pad(180), height=pad(240))
+        photo_frame.pack(side="left", padx=(10, 0), anchor="n")
+        photo_frame.pack_propagate(False)
+        self.photo_label = ttk.Label(photo_frame, text="фото", style="Photo.TLabel")
+        self.photo_label.pack(fill="both", expand=True)
 
         bottom = ttk.Frame(self, padding=10)
         bottom.pack(fill="x")
         ttk.Button(bottom, text="Добавить выбранных", style="Accent.TButton", command=self._accept).pack(side="right")
         ttk.Button(bottom, text="Закрыть", command=self.destroy).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Выделить всех", command=self._select_all).pack(side="left")
         entry.focus_set()
         self.grab_set()
+        self.after(100, self._poll_photo)
+
+    def _fill(self, found: list):
+        self.found = found
+        self.listbox.delete(0, "end")
+        for _id, fio, position, keys in found:
+            line = fio + (f" — {position}" if position else "")
+            if keys:
+                line += "   [ключи: " + ", ".join(str(k) for k in keys) + "]"
+            self.listbox.insert("end", line)
+        if not found:
+            self.listbox.insert("end", "Ничего не найдено")
+        self._shown_id = None
+        self._show_photo(None, "фото")
 
     def _search(self):
         text = self.query.get().strip()
         if not text:
             return
         try:
-            self.found = db.search_employees(self.cfg, text, self._key_candidates(text))
+            self._fill(db.search_employees(self.cfg, text, self._key_candidates(text)))
         except Exception as exc:
             messagebox.showerror("Поиск", str(exc), parent=self)
+
+    def _show_group(self):
+        name = self.group.get()
+        group_id = next((i for i, n in self.groups if n == name), None)
+        if group_id is None:
+            messagebox.showinfo("Группа", "Выберите группу.", parent=self)
             return
-        self.listbox.delete(0, "end")
-        for _id, fio, position, keys in self.found:
-            line = fio + (f" — {position}" if position else "")
-            if keys:
-                line += "   [ключи: " + ", ".join(str(k) for k in keys) + "]"
-            self.listbox.insert("end", line)
-        if not self.found:
-            self.listbox.insert("end", "Ничего не найдено")
+        try:
+            self._fill(db.group_employees(self.cfg, group_id))
+        except Exception as exc:
+            messagebox.showerror("Группа", str(exc), parent=self)
+
+    def _select_all(self):
+        if self.found:
+            self.listbox.selection_set(0, "end")
+
+    # --- превью фото (запрос в фоне, результат кэшируется)
+    def _on_select(self):
+        sel = self.listbox.curselection()
+        if not sel or sel[-1] >= len(self.found):
+            return
+        emp_id = self.found[sel[-1]][0]
+        self._shown_id = emp_id
+        if emp_id in self._photos:
+            self._show_photo(self._photos[emp_id], "нет фото")
+            return
+        self._show_photo(None, "загрузка…")
+
+        def worker():
+            try:
+                self._photo_queue.put((emp_id, db.fetch_photo(self.cfg, emp_id)))
+            except Exception:
+                self._photo_queue.put((emp_id, None))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _poll_photo(self):
+        try:
+            while True:
+                emp_id, photo = self._photo_queue.get_nowait()
+                self._photos[emp_id] = photo
+                if emp_id == self._shown_id:
+                    self._show_photo(photo, "нет фото")
+        except queue.Empty:
+            pass
+        if self.winfo_exists():
+            self.after(100, self._poll_photo)
+
+    def _show_photo(self, photo, placeholder: str):
+        self._thumb = None
+        if photo:
+            try:
+                im = Image.open(io.BytesIO(photo))
+                im.thumbnail((theme.px(180), theme.px(240)))
+                self._thumb = ImageTk.PhotoImage(im)
+            except Exception:
+                placeholder = "фото не читается"
+        if self._thumb:
+            self.photo_label.configure(image=self._thumb, text="")
+        else:
+            self.photo_label.configure(image="", text=placeholder)
 
     def _key_candidates(self, text: str) -> set:
         numbers: set = set()
@@ -158,6 +247,8 @@ class App:
         self.btn_add.pack(side="left")
         self.btn_find.pack(side="left")
         ttk.Button(bar, text="Удалить", style="Danger.TButton", command=self._on_delete).pack(
+            side="left", padx=(6, 0))
+        ttk.Button(bar, text="Очистить таблицу", style="Danger.TButton", command=self._on_clear_all).pack(
             side="left", padx=(6, 0))
         ttk.Button(bar, text="Обновить списки", command=lambda: self._load_lookups_async(True)).pack(
             side="right")
@@ -419,7 +510,7 @@ class App:
         self.e_name.focus_set()
 
     def _on_find(self):
-        dlg = SearchDialog(self.root, self.cfg, self._key_format_code())
+        dlg = SearchDialog(self.root, self.cfg, self._key_format_code(), self.groups)
         self.root.wait_window(dlg)
         known = {e.employee_id for e in self.entries if e.employee_id}
         chosen = [(i, fio) for i, fio, _p, _k in dlg.result if i not in known]
@@ -441,6 +532,11 @@ class App:
                 group=p["group"], group_original=p["group"], current_keys=p["keys"],
             ))
         self._rebuild_tree(select=len(self.entries) - 1)
+
+    def _on_clear_all(self):
+        if self.entries and messagebox.askyesno("Очистить таблицу", "Удалить все строки таблицы?"):
+            self.entries = []
+            self._rebuild_tree()
 
     def _on_delete(self):
         idx = self._selected_index()

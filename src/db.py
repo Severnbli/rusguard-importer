@@ -129,6 +129,55 @@ def upsert_photo(cur, employee_id, photo: bytes) -> None:
     )
 
 
+def _attach_keys(cur, found: list) -> list:
+    """[(id, ФИО, должность)] -> [(id, ФИО, должность, [активные ключи])]."""
+    keys_by_employee: dict = {}
+    if found:
+        cur.execute(
+            "SELECT employeeid::text, acskeyid FROM acskey2employeeassignment "
+            "WHERE assignmentmodificationtype = 0 AND employeeid = ANY(%s::uuid[])",
+            ([e[0] for e in found],),
+        )
+        for emp_id, key in cur.fetchall():
+            keys_by_employee.setdefault(emp_id, []).append(key)
+    return [(i, fio, pos, keys_by_employee.get(i, [])) for i, fio, pos in found]
+
+
+def group_employees(cfg: dict, group_id: str, limit: int = 1000) -> list:
+    """Активные сотрудники группы -> [(id, ФИО, должность, [ключи])]."""
+    conn = connect(cfg)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e._id::text, concat_ws(' ', e.lastname, e.firstname, e.secondname), p.name
+                FROM employee e LEFT JOIN employeeposition p ON p._id = e.employeepositionid
+                WHERE e.isremoved = false AND e.employeegroupid = %s
+                """,
+                (group_id,),
+            )
+            found = sorted(cur.fetchall(), key=lambda e: (e[1] or "").casefold())[:limit]
+            return _attach_keys(cur, found)
+    finally:
+        conn.close()
+
+
+def fetch_photo(cfg: dict, employee_id: str):
+    """Последнее фото сотрудника (bytes) или None."""
+    conn = connect(cfg)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT photo FROM employeephoto WHERE employeeid = %s "
+                "ORDER BY modificationdatetime DESC LIMIT 1",
+                (employee_id,),
+            )
+            row = cur.fetchone()
+            return bytes(row[0]) if row and row[0] else None
+    finally:
+        conn.close()
+
+
 def search_employees(cfg: dict, text: str, key_numbers=(), limit: int = 200) -> list:
     """Активные сотрудники, у которых все слова запроса входят в ФИО либо назначен один из key_numbers
     -> [(id, ФИО, должность, [ключи])]. Фильтрация по ФИО в Python: ILIKE не работает
@@ -159,16 +208,7 @@ def search_employees(cfg: dict, text: str, key_numbers=(), limit: int = 200) -> 
             ]
             found.sort(key=lambda e: (e[1] or "").casefold())
             found = found[:limit]
-            keys_by_employee: dict = {}
-            if found:
-                cur.execute(
-                    "SELECT employeeid::text, acskeyid FROM acskey2employeeassignment "
-                    "WHERE assignmentmodificationtype = 0 AND employeeid = ANY(%s::uuid[])",
-                    ([e[0] for e in found],),
-                )
-                for emp_id, key in cur.fetchall():
-                    keys_by_employee.setdefault(emp_id, []).append(key)
-            return [(i, fio, pos, keys_by_employee.get(i, [])) for i, fio, pos in found]
+            return _attach_keys(cur, found)
     finally:
         conn.close()
 
