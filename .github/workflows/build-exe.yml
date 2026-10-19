@@ -1,0 +1,55 @@
+name: Build Windows exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'templates/**'
+      - 'requirements.txt'
+      - '.github/workflows/build-exe.yml'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # нужно, чтобы прикреплять exe к релизу
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name RusGuardImporter
+          --paths src
+          --add-data "templates;templates"
+          src/app.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RusGuardImporter-windows
+          path: dist/RusGuardImporter.exe
+          if-no-files-found: error
+
+      - name: Attach exe to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/RusGuardImporter.exe

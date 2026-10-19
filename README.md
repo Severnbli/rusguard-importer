@@ -41,7 +41,7 @@ docker run --rm --network host -e DISPLAY=$DISPLAY -e HOME=/data --user $(id -u)
 
 ### Сборка .exe
 
-Готовый `RusGuardImporter.exe` собирает GitHub Actions (job `build-exe`, артефакт `RusGuardImporter-windows`). Локально, на Windows:
+Готовый `RusGuardImporter.exe` собирает GitHub Actions (workflow `Build Windows exe`, артефакт `RusGuardImporter-windows`; при пуше тега `v*` файл прикрепляется к релизу). Локально, на Windows:
 
 ```bat
 venv\Scripts\pip install pyinstaller
