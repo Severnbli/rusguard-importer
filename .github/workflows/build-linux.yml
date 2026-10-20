@@ -67,7 +67,7 @@ jobs:
           Name=RusGuard Importer
           Exec=RusGuardImporter
           Icon=rusguard-importer
-          Categories=Office;Utility;
+          Categories=Office;
           Terminal=false
           EOF
           python - <<'PY'
@@ -81,6 +81,7 @@ jobs:
           draw.rectangle((186, 114, 208, 142), fill="#f4f1df")
           draw.rectangle((158, 114, 180, 136), fill="#f4f1df")
           icon.save("AppDir/usr/share/icons/hicolor/256x256/apps/rusguard-importer.png")
+          icon.save("AppDir/rusguard-importer.png")
           PY
           curl -L --fail --silent --show-error \
             https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
