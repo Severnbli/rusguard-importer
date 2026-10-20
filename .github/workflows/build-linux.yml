@@ -10,12 +10,14 @@ on:
       - '!README.md'
       - '!LICENSE'
       - '!.github/**'
+      - '.github/workflows/build-linux.yml'
   pull_request:
     paths:
       - '**'
       - '!README.md'
       - '!LICENSE'
       - '!.github/**'
+      - '.github/workflows/build-linux.yml'
 
 permissions:
   contents: read
