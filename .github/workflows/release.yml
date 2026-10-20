@@ -41,6 +41,9 @@ jobs:
           if-no-files-found: error
 
   build-linux:
+    uses: ./.github/workflows/build-linux.yml
+
+  publish-image:
     runs-on: ubuntu-latest
 
     steps:
@@ -77,7 +80,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   publish-release:
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, publish-image]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 
@@ -91,16 +94,26 @@ jobs:
           name: RusGuardImporter-windows
           path: dist
 
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: RusGuardImporter-linux
+          path: dist
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/RusGuardImporter.exe --clobber
+            gh release upload "$RELEASE_TAG" \
+              dist/RusGuardImporter.exe \
+              dist/RusGuardImporter-x86_64.AppImage \
+              --clobber
           else
             gh release create "$RELEASE_TAG" \
               dist/RusGuardImporter.exe \
+              dist/RusGuardImporter-x86_64.AppImage \
               --title "$RELEASE_TAG" \
               --generate-notes
           fi

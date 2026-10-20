@@ -4,7 +4,14 @@
 
 ## Запуск
 
-**Linux:** нужен Docker Compose и графическая сессия X11/XWayland. Из папки проекта запустите:
+**Linux:** скачайте `RusGuardImporter-x86_64.AppImage` из раздела Releases, сделайте файл исполняемым и запустите его. Нужна графическая сессия X11/XWayland:
+
+```bash
+chmod +x RusGuardImporter-x86_64.AppImage
+./RusGuardImporter-x86_64.AppImage
+```
+
+Запуск через Docker Compose также доступен из папки проекта:
 
 ```bash
 ./importer.sh
@@ -36,5 +43,5 @@ Excel необязателен: «Из Excel…» загружает строк�
 
 - По умолчанию включён **Dry-run**: изменения проверяются, но не сохраняются. Отключите его для настоящего импорта.
 - Если выключен режим частичного сохранения, любая ошибка отменяет весь импорт.
-- В Linux настройки и рабочие файлы находятся в папке `data/` проекта. В Windows настройки расположены в `%APPDATA%\rusguard-importer\settings.json`.
+- В Linux AppImage настройки находятся в `~/.config/rusguard-importer/settings.json`; при запуске через Docker — в папке `data/` проекта. В Windows настройки расположены в `%APPDATA%\rusguard-importer\settings.json`.
 - Access Database Engine должен совпадать по разрядности с приложением.
