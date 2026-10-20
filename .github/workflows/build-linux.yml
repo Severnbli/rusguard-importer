@@ -48,6 +48,7 @@ jobs:
           pyinstaller --noconfirm --onefile --windowed
           --name RusGuardImporter
           --paths src
+          --hidden-import PIL._tkinter_finder
           --add-data "templates:templates"
           src/app.py
 
